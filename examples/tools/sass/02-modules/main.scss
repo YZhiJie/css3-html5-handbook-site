@@ -1,0 +1,108 @@
+// main.scss —— 入口文件
+// CLI 编译：npx sass main.scss output.css
+//
+// 说明：main.scss 自己就是编译入口，没有消费方
+// 所以直接 @use 每个 partial；as * 消掉命名空间，
+// 让本文件内部可以直接用 $color-primary、@include flex-center 等
+
+@use 'tokens' as *;
+@use 'mixins' as *;
+
+// 本文件内部才需要的原生模块，不对任何外部暴露
+@use 'sass:math';
+@use 'sass:string';
+
+// ──────────────────────────────────
+// 全局 reset
+// ──────────────────────────────────
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  font-family: $font-sans;
+  color: $color-text;
+  background: $color-bg-subtle;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+// ──────────────────────────────────
+// 组件：.btn
+// ──────────────────────────────────
+.btn {
+  @include flex-center;
+  @include reset-focus;
+  height: 40px;
+  padding: 0 $space-4;
+  border: none;
+  border-radius: $radius-sm;
+  background: $color-primary;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.2s, transform 0.1s;
+
+  &:hover  { background: $color-primary-dark; }
+  &:active { transform: translateY(1px); }
+
+  // 用 @each 生成尺寸变体
+  @each $name, $height in (sm: 32px, md: 40px, lg: 52px) {
+    &--#{$name} { height: $height; padding: 0 #{$height * 0.6}; }
+  }
+
+  // 颜色变体
+  &--ghost {
+    background: transparent;
+    color: $color-primary;
+    border: 1px solid $color-primary;
+  }
+  &--danger { background: $color-danger; }
+}
+
+// ──────────────────────────────────
+// 组件：.card（嵌套 + 响应式断点）
+// ──────────────────────────────────
+.card {
+  background: $color-bg;
+  border-radius: $radius-md;
+  box-shadow: $shadow-sm;
+  padding: $space-5;
+
+  &__title {
+    @include fluid-typography(16px, 22px);
+    margin-bottom: $space-2;
+    font-weight: 600;
+  }
+  &__body {
+    color: $color-muted;
+    font-size: remify(14px);
+  }
+
+  @include respond-to('md') {
+    padding: $space-8;
+    box-shadow: $shadow-md;
+  }
+}
+
+// ──────────────────────────────────
+// 响应式工具类（用 @each 遍历断点 map）
+// ──────────────────────────────────
+$breakpoints: (
+  'sm': 576px,
+  'md': 768px,
+  'lg': 1024px,
+  'xl': 1280px,
+);
+
+@each $name, $px in $breakpoints {
+  .hide-#{$name} {
+    @media (min-width: #{$px}) { display: none !important; }
+  }
+  .show-#{$name}-only {
+    display: none !important;
+    @media (min-width: #{$px}) { display: block !important; }
+  }
+}

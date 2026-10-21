@@ -1,0 +1,74 @@
+// _reset.scss —— 基础 reset + 排版
+// 这是"base 层"的一部分，会产出 CSS
+
+@use 'tokens' as *;
+@use 'mixins' as *;
+
+// ─── CSS 变量注入层（双层 token 架构） ───
+:root {
+  @include define-theme-vars(light);
+}
+
+.dark-mode {
+  @include define-theme-vars(dark);
+}
+
+// ─── Reset ───
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  // 响应式字号基准
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans, $font-sans);
+  font-size: rem(14px);
+  line-height: 1.6;
+  color: var(--color-text, $color-text);
+  background: var(--color-bg, $color-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+img, picture, video, canvas, svg {
+  display: block;
+  max-width: 100%;
+}
+
+input, button, textarea, select {
+  font: inherit;
+  color: inherit;
+}
+
+// ─── 排版基础 ───
+h1, h2, h3, h4, h5, h6 {
+  line-height: 1.3;
+  font-weight: 600;
+  color: var(--color-text, $color-text);
+}
+
+h1 { font-size: rem(28px); margin-bottom: rem(16px); }
+h2 { font-size: rem(22px); margin-bottom: rem(12px); }
+h3 { font-size: rem(18px); margin-bottom: rem(8px); }
+h4 { font-size: rem(16px); margin-bottom: rem(6px); }
+
+p { margin-bottom: rem(12px); }
+
+code, pre {
+  font-family: $font-mono;
+}
+
+code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 2px 6px;
+  border-radius: $radius-xs;
+  font-size: rem(12px);
+}

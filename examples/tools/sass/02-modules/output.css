@@ -1,0 +1,145 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  color: #1f2937;
+  background: #f3f4f6;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn:focus {
+  outline: none;
+}
+.btn:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+.btn {
+  height: 40px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 6px;
+  background: #3b82f6;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.2s, transform 0.1s;
+}
+.btn:hover {
+  background: #2563eb;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn--sm {
+  height: 32px;
+  padding: 0 19.2px;
+}
+.btn--md {
+  height: 40px;
+  padding: 0 24px;
+}
+.btn--lg {
+  height: 52px;
+  padding: 0 31.2px;
+}
+.btn--ghost {
+  background: transparent;
+  color: #3b82f6;
+  border: 1px solid #3b82f6;
+}
+.btn--danger {
+  background: #ef4444;
+}
+
+.card {
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  padding: 20px;
+}
+.card__title {
+  font-size: clamp(1rem, calc(0.0075 / 1px) * 100vw + -2.6remrem, 1.375rem);
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.card__body {
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+@media (min-width: 768px) {
+  .card {
+    padding: 32px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+}
+
+@media (min-width: 576px) {
+  .hide-sm {
+    display: none !important;
+  }
+}
+
+.show-sm-only {
+  display: none !important;
+}
+@media (min-width: 576px) {
+  .show-sm-only {
+    display: block !important;
+  }
+}
+
+@media (min-width: 768px) {
+  .hide-md {
+    display: none !important;
+  }
+}
+
+.show-md-only {
+  display: none !important;
+}
+@media (min-width: 768px) {
+  .show-md-only {
+    display: block !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  .hide-lg {
+    display: none !important;
+  }
+}
+
+.show-lg-only {
+  display: none !important;
+}
+@media (min-width: 1024px) {
+  .show-lg-only {
+    display: block !important;
+  }
+}
+
+@media (min-width: 1280px) {
+  .hide-xl {
+    display: none !important;
+  }
+}
+
+.show-xl-only {
+  display: none !important;
+}
+@media (min-width: 1280px) {
+  .show-xl-only {
+    display: block !important;
+  }
+}

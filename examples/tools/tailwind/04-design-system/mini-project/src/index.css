@@ -1,0 +1,124 @@
+@import "tailwindcss";
+
+/* =========================================================
+ *  Tailwind v4 设计令牌（Design Tokens）
+ *  所有设计系统配置都写在这里——这是唯一的配置文件。
+ *  修改一个值，整个应用自动同步。
+ * ========================================================= */
+
+@theme inline {
+  /* ======== 语义化颜色 ======== */
+
+  /* 品牌主色：腾讯红 */
+  --color-primary:        #da373d;
+  --color-primary-hover:  #b82c32;
+  --color-primary-active: #962328;
+  --color-primary-soft:   #fef2f2;
+
+  /* 状态色 */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger:  #ef4444;
+  --color-info:    #3b82f6;
+
+  /* ======== 动态语义色：亮暗自动切换 ======== */
+  /* 用 CSS light-dark() 函数——v4 自动生成 .dark class 回退 */
+  --color-bg:        light-dark(#ffffff, #0f172a);
+  --color-card-bg:   light-dark(#ffffff, #1e293b);
+  --color-surface:   light-dark(#f8fafc, #0b1220);
+  --color-text:      light-dark(#0f172a, #f8fafc);
+  --color-text-muted: light-dark(#64748b, #94a3b8);
+  --color-border:    light-dark(#e2e8f0, #334155);
+
+  /* ======== 字体 ======== */
+  --font-sans:   "Inter", "Noto Sans SC", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono:   ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-display: "Poppins", "Inter", system-ui, sans-serif;
+
+  /* ======== 圆角 ======== */
+  --radius-sm:   6px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-card: 16px;
+
+  /* ======== 阴影（Elevation 阶梯） ======== */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.16);
+
+  /* ======== 响应式字号 ======== */
+  /* 屏幕越大 hero 字号越大：2rem → 4rem */
+  --text-hero: clamp(2rem, 5vw, 4rem);
+
+  /* ======== 自定义断点 ======== */
+  /* 默认 sm:640 md:768 lg:1024 通常够用，按需加 */
+  --breakpoint-3xl: 1800px;
+}
+
+/* =========================================================
+ *  @layer components：复合组件 class
+ *  层叠优先级 < utilities（工具类永远可以覆盖组件样式）
+ * ========================================================= */
+
+@layer components {
+  /* 全局卡片 */
+  .card {
+    background-color: var(--color-card-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    padding: 1.25rem;
+    box-shadow: var(--shadow-xs);
+    transition: box-shadow 0.2s ease;
+  }
+  .card:hover {
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* 全局标签（带状态变体） */
+  .tag {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+  .tag-success {
+    background-color: color-mix(in oklab, var(--color-success) 15%, transparent);
+    color: var(--color-success);
+  }
+  .tag-warning {
+    background-color: color-mix(in oklab, var(--color-warning) 15%, transparent);
+    color: var(--color-warning);
+  }
+  .tag-danger {
+    background-color: color-mix(in oklab, var(--color-danger) 15%, transparent);
+    color: var(--color-danger);
+  }
+  .tag-info {
+    background-color: color-mix(in oklab, var(--color-info) 15%, transparent);
+    color: var(--color-info);
+  }
+}
+
+/* =========================================================
+ *  @layer base：全局重置增强
+ * ========================================================= */
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    min-height: 100vh;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  code {
+    font-family: var(--font-mono);
+  }
+}

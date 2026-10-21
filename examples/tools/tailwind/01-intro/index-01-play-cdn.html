@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tailwind v4 Play CDN 示例 —— 品牌色 + 响应式卡片</title>
+
+<!-- Tailwind v4 核心：@import + @theme，一切配置写在 CSS 里 -->
+<style>
+  @import "tailwindcss";
+
+  @theme {
+    /* 覆盖默认颜色为腾讯红 */
+    --color-brand: #da373d;
+    --color-brand-hover: #b82c32;
+
+    /* 自定义字体栈（覆盖默认 sans） */
+    --font-display: "Inter", "Noto Sans SC", system-ui, sans-serif;
+  }
+
+  /* 普通 CSS 也能直接消费 @theme 里的 token */
+  body { font-family: var(--font-display); }
+
+  /* 给代码片段加点样式（演示 @theme 外的普通 CSS 写法） */
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+</style>
+</head>
+
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+  <div class="max-w-3xl mx-auto p-6">
+
+    <!-- 标题区：用 brand 颜色 -->
+    <h1 class="text-3xl font-bold text-brand mb-2">🎨 Tailwind v4 入门</h1>
+    <p class="text-slate-500 mb-8">
+      这是一个 <strong>双击即开</strong> 的单文件示例——不需要 Node、不需要构建、不需要
+      <code class="bg-slate-100 px-1 rounded text-xs">tailwind.config.js</code>。
+    </p>
+
+    <!-- ========== 第一组：@theme 改品牌色 ========== -->
+    <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+      <span class="inline-block w-2 h-2 rounded-full bg-brand"></span>
+      1. @theme 改 brand 颜色
+    </h2>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
+
+      <!-- 普通卡片 -->
+      <div class="bg-white rounded-lg shadow-sm p-5 border border-slate-200
+                  hover:shadow-md hover:-translate-y-0.5
+                  transition-all duration-200">
+        <div class="text-xs text-slate-400 uppercase tracking-wider mb-1">Neutral</div>
+        <h3 class="font-semibold text-lg mb-2">零构建起手</h3>
+        <p class="text-slate-600 text-sm leading-relaxed">
+          Play CDN 在浏览器端实时解析
+          <code class="bg-slate-100 px-1 rounded">@theme</code>
+          并生成工具类。写一行生效一行。
+        </p>
+      </div>
+
+      <!-- brand 颜色卡片：演示 --color-brand 和 --color-brand-hover -->
+      <div class="bg-brand text-white rounded-lg p-5 shadow-sm
+                  hover:bg-brand-hover hover:shadow-lg
+                  transition-all duration-200 cursor-pointer">
+        <div class="text-xs text-white/70 uppercase tracking-wider mb-1">Brand</div>
+        <h3 class="font-semibold text-lg mb-2">CSS-first 范式</h3>
+        <p class="text-white/90 text-sm leading-relaxed">
+          设计令牌就是 CSS 变量。<code class="bg-white/20 px-1 rounded">--color-brand</code>
+          一处定义，处处消费。
+        </p>
+      </div>
+    </div>
+
+    <!-- ========== 第二组：响应式断点演示 ========== -->
+    <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+      <span class="inline-block w-2 h-2 rounded-full bg-blue-500"></span>
+      2. 响应式：md 断点切换
+    </h2>
+
+    <div class="bg-white rounded-lg shadow-sm p-5 border border-slate-200 mb-6">
+      <div class="flex items-center justify-between mb-4">
+        <span class="text-sm text-slate-500">
+          当前断点：
+          <code class="bg-slate-100 px-2 py-0.5 rounded text-xs font-mono" id="bp-label">默认</code>
+        </span>
+        <span class="text-xs text-slate-400">调整浏览器宽度观察变化</span>
+      </div>
+
+      <!-- 断点切换面板 -->
+      <div class="grid gap-3
+                  grid-cols-2
+                  sm:grid-cols-3
+                  md:grid-cols-4
+                  lg:grid-cols-5
+                  xl:grid-cols-6">
+        <div class="h-16 rounded bg-blue-100 text-blue-600
+                    flex items-center justify-center text-xs font-medium
+                    border border-blue-200">A</div>
+        <div class="h-16 rounded bg-green-100 text-green-600
+                    flex items-center justify-center text-xs font-medium
+                    border border-green-200">B</div>
+        <div class="h-16 rounded bg-amber-100 text-amber-600
+                    flex items-center justify-center text-xs font-medium
+                    border border-amber-200">C</div>
+        <div class="h-16 rounded bg-pink-100 text-pink-600
+                    flex items-center justify-center text-xs font-medium
+                    border border-pink-200">D</div>
+        <div class="h-16 rounded bg-purple-100 text-purple-600
+                    flex items-center justify-center text-xs font-medium
+                    border border-purple-200">E</div>
+        <div class="h-16 rounded bg-teal-100 text-teal-600
+                    flex items-center justify-center text-xs font-medium
+                    border border-teal-200">F</div>
+      </div>
+
+      <p class="mt-4 text-xs text-slate-500 leading-relaxed">
+        💡 默认 Tailwind 断点：
+        <code>sm: 640px</code> · <code>md: 768px</code> ·
+        <code>lg: 1024px</code> · <code>xl: 1280px</code> ·
+        <code>2xl: 1536px</code>
+      </p>
+    </div>
+
+    <!-- ========== 第三组：常用 @theme 覆盖演示 ========== -->
+    <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+      <span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+      3. 再改一个：字号 & 圆角
+    </h2>
+
+    <div class="flex flex-wrap gap-3">
+      <!-- 覆盖圆角 -->
+      <div class="bg-emerald-100 text-emerald-700 px-4 py-2 rounded-full text-sm font-medium">
+        rounded-full (默认)
+      </div>
+      <div class="bg-emerald-100 text-emerald-700 px-4 py-2 rounded-2xl text-sm font-medium">
+        rounded-2xl (默认 1rem)
+      </div>
+      <!-- 任意值语法：覆盖默认 -->
+      <div class="bg-emerald-100 text-emerald-700 px-4 py-2 rounded-[16px] text-sm font-medium">
+        rounded-[16px] (任意值)
+      </div>
+    </div>
+
+    <div class="flex flex-wrap gap-3 mt-3">
+      <span class="text-xs text-slate-500">字号：</span>
+      <span class="text-xs">xs (12px)</span>
+      <span class="text-sm">sm (14px)</span>
+      <span class="text-base">base (16px)</span>
+      <span class="text-lg">lg (18px)</span>
+      <span class="text-xl">xl (20px)</span>
+      <span class="text-2xl">2xl (24px)</span>
+      <span class="text-[17px]">[17px] (任意值)</span>
+    </div>
+
+  </div>
+
+<!-- ========== Play CDN 核心：浏览器端 Tailwind v4 引擎 ========== -->
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.1"></script>
+
+<!-- 断点检测脚本（纯 UI 提示，非 Tailwind 核心） -->
+<script>
+  const bpLabel = document.getElementById('bp-label');
+  const checkBP = () => {
+    const w = window.innerWidth;
+    if (w < 640) bpLabel.textContent = '< sm (默认)';
+    else if (w < 768) bpLabel.textContent = 'sm ≥ 640px';
+    else if (w < 1024) bpLabel.textContent = 'md ≥ 768px';
+    else if (w < 1280) bpLabel.textContent = 'lg ≥ 1024px';
+    else if (w < 1536) bpLabel.textContent = 'xl ≥ 1280px';
+    else bpLabel.textContent = '2xl ≥ 1536px';
+  };
+  checkBP();
+  window.addEventListener('resize', checkBP);
+</script>
+</body>
+</html>

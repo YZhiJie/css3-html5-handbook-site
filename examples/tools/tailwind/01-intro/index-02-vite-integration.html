@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tailwind v4 —— Vite 集成骨架</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    margin: 0; padding: 32px;
+    background: #f8fafc; color: #0f172a;
+  }
+  pre {
+    background: #0f172a; color: #e2e8f0;
+    padding: 20px 24px; border-radius: 8px;
+    overflow-x: auto; font-size: 13px; line-height: 1.6;
+  }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .kw { color: #c084fc; }
+  .str { color: #86efac; }
+  .fn { color: #93c5fd; }
+  .cm { color: #64748b; font-style: italic; }
+  .file-header {
+    display: flex; align-items: center; justify-content: space-between;
+    background: #1e293b; color: #e2e8f0;
+    padding: 10px 16px; border-radius: 8px 8px 0 0;
+    font-family: ui-monospace, monospace; font-size: 13px;
+  }
+  .file-block { margin-bottom: 24px; }
+  h1 { font-size: 24px; margin-bottom: 8px; }
+  .subtitle { color: #64748b; margin-bottom: 28px; font-size: 14px; }
+  .tag {
+    display: inline-block; background: #e0e7ff; color: #4338ca;
+    padding: 2px 8px; border-radius: 4px; font-size: 12px;
+    margin-right: 8px;
+  }
+</style>
+</head>
+<body>
+
+  <h1>📦 Tailwind v4 + Vite 集成骨架</h1>
+  <p class="subtitle">
+    下面是一个最小可运行项目的所有文件。复制到本地，按顺序执行 <code>npm install</code> →
+    <code>npm run dev</code> 即可。<strong>注意：v4 不需要 tailwind.config.js 和 postcss.config.js。</strong>
+  </p>
+
+  <!-- package.json -->
+  <div class="file-block">
+    <div class="file-header">📄 package.json</div>
+<pre><code>{
+  <span class="kw">"name"</span>: <span class="str">"tailwind-v4-vite-demo"</span>,
+  <span class="kw">"private"</span>: <span class="fn">true</span>,
+  <span class="kw">"version"</span>: <span class="str">"0.1.0"</span>,
+  <span class="kw">"type"</span>: <span class="str">"module"</span>,
+  <span class="kw">"scripts"</span>: {
+    <span class="kw">"dev"</span>: <span class="str">"vite"</span>,
+    <span class="kw">"build"</span>: <span class="str">"vite build"</span>,
+    <span class="kw">"preview"</span>: <span class="str">"vite preview"</span>
+  },
+  <span class="kw">"dependencies"</span>: {
+    <span class="kw">"react"</span>: <span class="str">"^18.3.1"</span>,
+    <span class="kw">"react-dom"</span>: <span class="str">"^18.3.1"</span>
+  },
+  <span class="kw">"devDependencies"</span>: {
+    <span class="kw">"@tailwindcss/vite"</span>: <span class="str">"^4.1.1"</span>,
+    <span class="kw">"@types/react"</span>: <span class="str">"^18.3.12"</span>,
+    <span class="kw">"@types/react-dom"</span>: <span class="str">"^18.3.1"</span>,
+    <span class="kw">"@vitejs/plugin-react"</span>: <span class="str">"^4.3.3"</span>,
+    <span class="kw">"tailwindcss"</span>: <span class="str">"^4.1.1"</span>,
+    <span class="kw">"typescript"</span>: <span class="str">"^5.6.3"</span>,
+    <span class="kw">"vite"</span>: <span class="str">"^5.4.10"</span>
+  }
+}</code></pre>
+  </div>
+
+  <!-- vite.config.ts -->
+  <div class="file-block">
+    <div class="file-header">📄 vite.config.ts</div>
+<pre><code><span class="kw">import</span> { <span class="fn">defineConfig</span> } <span class="kw">from</span> <span class="str">"vite"</span>;
+<span class="kw">import</span> react <span class="kw">from</span> <span class="str">"@vitejs/plugin-react"</span>;
+<span class="kw">import</span> tailwindcss <span class="kw">from</span> <span class="str">"@tailwindcss/vite"</span>;
+
+<span class="kw">export default</span> <span class="fn">defineConfig</span>({
+  plugins: [
+    <span class="fn">react</span>(),
+    <span class="fn">tailwindcss</span>(),  <span class="cm">// ✅ 一行搞定 v4 集成</span>
+  ],
+});</code></pre>
+  </div>
+
+  <!-- src/index.css -->
+  <div class="file-block">
+    <div class="file-header">📄 src/index.css <span style="color:#94a3b8">（唯一的 Tailwind 入口）</span></div>
+<pre><code><span class="kw">@import</span> <span class="str">"tailwindcss"</span>;  <span class="cm">/* ✅ v4 的唯一导入 */</span>
+
+<span class="kw">@theme</span> {
+  <span class="cm">/* 在这里覆盖 / 新增设计令牌 */</span>
+  --color-brand: #da373d;
+  --font-display: <span class="str">"Inter"</span>, <span class="str">"Noto Sans SC"</span>, system-ui, sans-serif;
+  --radius-card: 12px;
+}
+
+<span class="cm">/* 普通 CSS 可以放在 @theme 之后，也可以用 var() 消费 token */</span>
+html, body, #root { height: 100%; }</code></pre>
+  </div>
+
+  <!-- index.html -->
+  <div class="file-block">
+    <div class="file-header">📄 index.html</div>
+<pre><code><span class="kw"><!doctype html></span>
+<span class="kw"><html lang="zh-CN"></span>
+  <span class="kw"><head></span>
+    <span class="kw"><meta charset="UTF-8" /></span>
+    <span class="kw"><meta name="viewport" content="width=device-width, initial-scale=1.0" /></span>
+    <span class="kw"><title></span>My App<span class="kw"></title></span>
+  <span class="kw"></head></span>
+  <span class="kw"><body></span>
+    <span class="kw"><div id="root"></div></span>
+    <span class="kw"><script type="module" src="/src/main.tsx"></script></span>
+  <span class="kw"></body></span>
+<span class="kw"></html></span></code></pre>
+  </div>
+
+  <!-- src/App.tsx -->
+  <div class="file-block">
+    <div class="file-header">📄 src/App.tsx</div>
+<pre><code><span class="kw">export default function</span> <span class="fn">App</span>() {
+  <span class="kw">return</span> (
+    <span class="kw"><div className="min-h-screen bg-slate-50 p-8"></span>
+      <span class="kw"><h1 className="text-3xl font-bold text-brand"></span>
+        Hello Tailwind v4！
+      <span class="kw"></h1></span>
+      <span class="kw"><p className="mt-2 text-slate-600 font-display"></span>
+        这是一个 Vite + React + Tailwind v4 的最小骨架。
+      <span class="kw"></p></span>
+    <span class="kw"></div></span>
+  );
+}</code></pre>
+  </div>
+
+  <div style="background:#dcfce7;color:#166534;padding:16px;border-radius:8px;margin-top:12px;">
+    <strong>✅ v4 vs v3 构建链变化</strong><br>
+    · 不需要 <code>postcss.config.js</code><br>
+    · 不需要 <code>tailwind.config.js</code><br>
+    · <code>tailwind.config.js</code> 里的全部配置 → 搬到 <code>src/index.css</code> 的 <code>@theme { }</code> 里<br>
+    · <code>content: ["./src/**/*.{tsx,html}"]</code> → 默认已自动扫描，或用 <code>@source</code> 指定
+  </div>
+
+</body>
+</html>
