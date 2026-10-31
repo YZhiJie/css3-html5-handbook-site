@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 05：资源缓存策略实验室
+  ------------------------------------------------------------
+  【示例编号】perf / 05 / index-01
+  【知识点】
+    1. 浏览器 HTTP 缓存：Cache-Control / ETag / Last-Modified /
+       Vary / Age；no-cache 与 no-store 的区别，
+       max-age / s-maxage / stale-while-revalidate / immutable
+    2. 缓存决策：首次写入、再次命中、过期协商（304/200）、
+       发版后旧缓存失效；HTML 不缓存 vs 带 hash 资源长缓存
+    3. Service Worker 三策略：Cache First / Network First /
+       Stale While Revalidate 的耗时与行为差异
+    4. 版本化缓存清理：activate 时删除旧版本 CacheStorage
+    5. 压缩估算：gzip / Brotli 对文本有效，对已压缩图片几乎无效
+    6. 资源优先级瀑布：preload / 懒加载 / 请求依赖对 LCP 的影响
+  【运行方式】
+    纯单文件、零网络、零 CDN、零外部图片与字体，
+    双击 file:// 直接打开即可运行。
+  【效果说明】
+    顶部“重置所有演示”→ 缓存头模拟器（选资源类型、改响应头，
+    模拟首次/再次/过期/发版后的决策与时间线）→ SW 三策略动画
+    对比 → 版本化缓存清理 → 压缩体积计算器 → 资源优先级瀑布图。
+  【注意事项】
+    1. 所有结果均为教学模拟，真实浏览器行为以实际响应头与实现为准；
+       ETag 比较用简化模型。
+    2. 全程只用页面内状态卡/时间线/toast 反馈，无 alert/prompt。
+    3. 所有动画定时器统一登记，重置或重复点击会先清理，不会叠加。
+  ============================================================
+-->
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>示例 05 · 资源缓存策略实验室</title>
+  <style>
+    /* ---------- 主题变量与基础 ---------- */
+    :root {
+      --bg: #f2f5f9; --card: #fff; --ink: #1f2a37; --muted: #667085;
+      --line: #dce3ec; --brand: #2563eb; --brand-soft: #e8efff;
+      --green: #0f8a4d; --green-soft: #e6f6ee; --amber: #b45309;
+      --amber-soft: #fff4e5; --red: #c0392b; --red-soft: #fdeceb;
+      --violet: #6d28d9; --violet-soft: #f1eafe; --radius: 12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      background: radial-gradient(1200px 400px at 20% -10%, #e3edff 0%, transparent 60%), var(--bg);
+      color: var(--ink); line-height: 1.65; padding: 20px;
+    }
+    .wrap { max-width: 1000px; margin: 0 auto; }
+    .top { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    h1 { font-size: 1.35rem; }
+    .sub { color: var(--muted); font-size: .84rem; margin-top: 2px; }
+    section.box { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; box-shadow: 0 3px 10px rgba(31,42,55,.04); }
+    h2 { font-size: 1.02rem; margin-bottom: 4px; }
+    h3 { font-size: .88rem; margin: 14px 0 8px; }
+    p, li, td, th { font-size: .84rem; }
+    .hint { color: var(--muted); font-size: .78rem; margin-top: 6px; }
+    code { background: #eef2f7; border-radius: 4px; padding: 0 5px; font-size: .76rem; font-family: "SF Mono", Consolas, monospace; }
+    .btn { border: 0; border-radius: 8px; background: var(--brand); color: #fff; font-size: .82rem; font-weight: 600; padding: 8px 14px; cursor: pointer; transition: transform .12s ease; }
+    .btn:hover { transform: translateY(-1px); }
+    .btn.ghost { background: #eef2f8; color: var(--ink); border: 1px solid var(--line); }
+    .btn.soft { background: var(--brand-soft); color: var(--brand); }
+    .btn.small { font-size: .76rem; padding: 6px 10px; }
+    .btn:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid rgba(37,99,235,.3); outline-offset: 1px; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .grid-controls { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 10px 14px; margin: 12px 0; }
+    label.field { display: block; font-size: .78rem; font-weight: 600; margin-bottom: 4px; }
+    select, input[type="text"], input[type="number"] { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: .82rem; font-family: inherit; background: #fbfcfe; color: var(--ink); }
+
+    /* ---------- 决策卡 ---------- */
+    .decision { border: 1px solid var(--line); border-left: 5px solid var(--muted); border-radius: 10px; background: #fbfcfe; padding: 10px 14px; margin: 10px 0; min-height: 68px; }
+    .decision.hit { border-left-color: var(--green); background: var(--green-soft); }
+    .decision.revalidate { border-left-color: var(--amber); background: var(--amber-soft); }
+    .decision.network { border-left-color: var(--brand); background: var(--brand-soft); }
+    .decision.nostore { border-left-color: var(--red); background: var(--red-soft); }
+    .decision-title { font-size: .9rem; font-weight: 700; }
+    .decision-sub { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+    .stats { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: .76rem; }
+    .stats b { color: var(--brand); }
+
+    /* ---------- 时间线 ---------- */
+    .timeline { display: flex; gap: 8px; overflow-x: auto; padding: 10px 2px 4px; min-height: 92px; }
+    .event { flex: 0 0 auto; width: 165px; background: #fff; border: 1px solid var(--line); border-top: 4px solid var(--muted); border-radius: 8px; padding: 7px 9px; font-size: .74rem; animation: eventIn .2s ease-out; }
+    .event.hit { border-top-color: var(--green); }
+    .event.revalidate { border-top-color: var(--amber); }
+    .event.network { border-top-color: var(--brand); }
+    .event.nostore { border-top-color: var(--red); }
+    .event .t { color: var(--muted); font-size: .68rem; font-family: "SF Mono", Consolas, monospace; }
+    .event .name { font-weight: 700; margin: 1px 0; }
+    @keyframes eventIn { from { opacity: 0; transform: translateY(6px); } }
+
+    /* ---------- SW 三泳道 ---------- */
+    .lanes { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 12px; margin-top: 10px; }
+    .lane { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fbfcfe; }
+    .lane-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; }
+    .lane-head h4 { font-size: .83rem; }
+    .lane-status { font-size: .7rem; color: var(--muted); font-weight: 600; }
+    .lane-status.run { color: var(--brand); }
+    .steps { display: flex; flex-direction: column; gap: 5px; min-height: 116px; }
+    .step { font-size: .72rem; padding: 4px 7px; border-radius: 6px; background: #eef2f7; color: var(--muted); opacity: .55; transition: all .2s ease; }
+    .step.on { opacity: 1; background: var(--brand-soft); color: var(--brand); font-weight: 600; transform: translateX(3px); }
+    .step.cache.on { background: var(--green-soft); color: var(--green); }
+    .step.net.on { background: var(--amber-soft); color: var(--amber); }
+    .lane-foot { margin-top: 6px; font-size: .74rem; color: var(--muted); }
+    .lane-foot b { color: var(--ink); }
+
+    /* ---------- 版本化缓存 ---------- */
+    .cache-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; min-height: 42px; }
+    .cache-chip { border: 1px dashed var(--line); border-radius: 999px; padding: 5px 12px; font-size: .76rem; background: #fbfcfe; color: var(--muted); transition: all .25s ease; }
+    .cache-chip.active { border-style: solid; border-color: var(--green); background: var(--green-soft); color: var(--green); font-weight: 600; }
+    .cache-chip.dying { border-color: var(--red); background: var(--red-soft); color: var(--red); text-decoration: line-through; opacity: .6; }
+    .version-badge { display: inline-block; background: var(--violet-soft); color: var(--violet); border-radius: 999px; padding: 2px 10px; font-size: .74rem; font-weight: 700; }
+
+    /* ---------- 压缩计算 ---------- */
+    .cmp-grid { display: grid; grid-template-columns: minmax(160px, 220px) 1fr; gap: 12px; align-items: start; margin-top: 10px; }
+    .bar-row { display: grid; grid-template-columns: 56px 1fr 84px; gap: 8px; align-items: center; margin: 7px 0; font-size: .76rem; }
+    .bar-track { height: 14px; background: #eef2f7; border-radius: 999px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 999px; transition: width .35s ease; background: var(--brand); }
+    .bar-fill.gz { background: var(--amber); }
+    .bar-fill.br { background: var(--green); }
+    .bar-fill.raw { background: #94a3b8; }
+    .result-note { font-size: .78rem; margin-top: 8px; color: var(--muted); }
+    .result-note.warn { color: var(--amber); }
+
+    /* ---------- 瀑布图 ---------- */
+    .wf-head, .wf-row { display: grid; grid-template-columns: 110px 1fr 72px; gap: 8px; align-items: center; }
+    .wf-head { font-size: .7rem; color: var(--muted); margin-bottom: 4px; }
+    .wf-row { margin: 6px 0; font-size: .74rem; }
+    .wf-track { position: relative; height: 18px; background: repeating-linear-gradient(90deg, #f3f6fa 0 49px, #e7edf4 49px 50px); border-radius: 4px; overflow: hidden; }
+    .wf-bar { position: absolute; top: 3px; height: 12px; border-radius: 3px; background: var(--brand); min-width: 2px; transition: all .3s ease; }
+    .wf-bar.critical { background: var(--red); }
+    .wf-bar.asset { background: var(--green); }
+    .wf-bar.lazy { background: #94a3b8; }
+    .wf-marker { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--violet); opacity: .9; }
+    .wf-marker::after { content: attr(data-label); position: absolute; top: -15px; left: 3px; font-size: .6rem; color: var(--violet); white-space: nowrap; }
+    .wf-times { font-family: "SF Mono", Consolas, monospace; font-size: .68rem; color: var(--muted); text-align: right; }
+    .lcp-pill { display: inline-block; background: var(--violet-soft); color: var(--violet); border-radius: 999px; padding: 2px 10px; font-size: .74rem; font-weight: 700; }
+
+    /* ---------- toast ---------- */
+    .toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 18px); background: #1f2a37; color: #fff; border-radius: 8px; padding: 9px 16px; font-size: .8rem; opacity: 0; pointer-events: none; transition: all .22s ease; z-index: 20; max-width: 90vw; }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-width: 760px) {
+      body { padding: 12px; }
+      .grid-controls, .cmp-grid { grid-template-columns: 1fr; }
+      .lanes { grid-template-columns: 1fr; }
+      .wf-head, .wf-row { grid-template-columns: 84px 1fr 60px; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div>
+        <h1>资源缓存策略实验室</h1>
+        <p class="sub">HTTP 缓存 · Service Worker · 压缩 / 优先级，全离线模拟</p>
+      </div>
+      <button class="btn ghost" id="btnResetAll" type="button">重置所有演示</button>
+    </header>
+
+    <!-- ================= 1. 缓存头模拟器 ================= -->
+    <section class="box" aria-labelledby="s1">
+      <h2 id="s1">1 · 缓存头模拟器</h2>
+      <p class="hint">选择资源类型会填入推荐响应头。修改后点击按钮，观察“首次 / 再次 / 过期 / 发版后”的缓存决策与时间线（模拟时钟按秒推进）。</p>
+      <div class="grid-controls">
+        <div>
+          <label class="field" for="resType">资源类型</label>
+          <select id="resType">
+            <option value="html">HTML 入口页</option>
+            <option value="hjs">带 hash 的 JS</option>
+            <option value="css">CSS（示例为带 hash）</option>
+            <option value="image">图片（内容稳定）</option>
+            <option value="api">用户私有 API</option>
+            <option value="font">字体 WOFF2</option>
+          </select>
+        </div>
+        <div>
+          <label class="field" for="ccInput">Cache-Control</label>
+          <input id="ccInput" type="text" spellcheck="false">
+        </div>
+        <div>
+          <label class="field" for="etagInput">ETag（服务器当前值）</label>
+          <input id="etagInput" type="text" spellcheck="false">
+        </div>
+        <div>
+          <label class="field">模拟动作</label>
+          <div class="row">
+            <button class="btn soft small" id="btnFirst" type="button">首次访问</button>
+            <button class="btn soft small" id="btnAgain" type="button">再次访问</button>
+            <button class="btn soft small" id="btnExpire" type="button">过期后</button>
+            <button class="btn small" id="btnRelease" type="button">发版后</button>
+          </div>
+        </div>
+      </div>
+      <div class="decision" id="decisionCard">
+        <div class="decision-title" id="decisionTitle">等待模拟</div>
+        <div class="decision-sub" id="decisionSub">先点“首次访问”，浏览器会把响应写入本地缓存（no-store 除外）。</div>
+        <div class="stats">
+          <span>请求数：<b id="statReq">0</b></span>
+          <span>传输体积：<b id="statBytes">0 KB</b></span>
+          <span>缓存年龄：<b id="statAge">0 s</b></span>
+        </div>
+      </div>
+      <h3>决策时间线</h3>
+      <div class="timeline" id="cacheTimeline" aria-live="polite"></div>
+      <p class="hint" id="cacheTip">提示：<code>no-cache</code> 不是不缓存，而是每次复用前必须验证；<code>no-store</code> 才是完全不落盘。</p>
+    </section>
+
+    <!-- ================= 2. SW 三策略 ================= -->
+    <section class="box" aria-labelledby="s2">
+      <h2 id="s2">2 · Service Worker 三策略动画对比</h2>
+      <p class="hint">假设静态资源已预热。观察三种策略在“请求 → 缓存/网络 → 返回 → 更新”上的耗时差异；重复点击会先清掉上一轮定时器。</p>
+      <div class="row" style="margin-top: 8px;">
+        <button class="btn" id="btnRunSw" type="button">运行一次对比</button>
+        <button class="btn ghost small" id="btnResetSw" type="button">重置对比</button>
+      </div>
+      <div class="lanes">
+        <div class="lane">
+          <div class="lane-head"><h4>Cache First</h4><span class="lane-status" id="cfStatus">待运行</span></div>
+          <div class="steps" id="cfSteps">
+            <div class="step cache">1. 拦截 fetch 请求</div>
+            <div class="step cache">2. caches.match 命中</div>
+            <div class="step cache">3. 直接返回缓存</div>
+            <div class="step">4. 未命中时才走网络</div>
+          </div>
+          <div class="lane-foot">返回耗时：<b id="cfTime">—</b></div>
+        </div>
+        <div class="lane">
+          <div class="lane-head"><h4>Network First</h4><span class="lane-status" id="nfStatus">待运行</span></div>
+          <div class="steps" id="nfSteps">
+            <div class="step net">1. 拦截 fetch 请求</div>
+            <div class="step net">2. 先发网络请求</div>
+            <div class="step net">3. 200 返回并写缓存</div>
+            <div class="step">4. 失败/超时才回退缓存</div>
+          </div>
+          <div class="lane-foot">返回耗时：<b id="nfTime">—</b></div>
+        </div>
+        <div class="lane">
+          <div class="lane-head"><h4>Stale While Revalidate</h4><span class="lane-status" id="swrStatus">待运行</span></div>
+          <div class="steps" id="swrSteps">
+            <div class="step cache">1. 命中缓存立即返回</div>
+            <div class="step cache">2. 页面先拿到旧数据</div>
+            <div class="step net">3. 后台发起网络更新</div>
+            <div class="step net">4. 下次访问拿到新数据</div>
+          </div>
+          <div class="lane-foot">返回耗时：<b id="swrTime">—</b></div>
+        </div>
+      </div>
+      <p class="hint">结论：Cache First 最适合带 hash 的静态资源；Network First 适合 HTML/API；SWR 用“一次旧数据”换取稳定秒开。</p>
+    </section>
+
+    <!-- ================= 3. 版本化缓存清理 ================= -->
+    <section class="box" aria-labelledby="s3">
+      <h2 id="s3">3 · 版本化缓存清理（activate 阶段）</h2>
+      <p class="hint">缓存名带构建版本；激活时删除不属于当前版本的旧缓存，避免磁盘配额被历史版本撑爆。</p>
+      <div class="row" style="margin-top: 8px;">
+        <span class="version-badge" id="versionBadge">当前版本 v1</span>
+        <button class="btn soft small" id="btnBump" type="button">模拟发下一版</button>
+        <button class="btn ghost small" id="btnResetVer" type="button">重置版本</button>
+      </div>
+      <div class="cache-list" id="cacheList" aria-live="polite"></div>
+      <p class="hint" id="cacheCleanLog">等待操作：新版本激活后，旧版本缓存会被标记删除。</p>
+    </section>
+
+    <!-- ================= 4. 压缩体积计算器 ================= -->
+    <section class="box" aria-labelledby="s4">
+      <h2 id="s4">4 · 压缩体积估算（gzip / Brotli）</h2>
+      <p class="hint">输入原始体积并选择内容类型。压缩比随内容重复度波动，这里给出教学估算；图片/字体等已压缩格式几乎无收益。</p>
+      <div class="cmp-grid">
+        <div>
+          <label class="field" for="rawSize">原始体积（KB）</label>
+          <input id="rawSize" type="number" min="1" max="5000" step="1" value="180">
+          <label class="field" for="contentType" style="margin-top: 8px;">内容类型</label>
+          <select id="contentType">
+            <option value="js">JavaScript</option>
+            <option value="css">CSS</option>
+            <option value="html">HTML</option>
+            <option value="json">JSON</option>
+            <option value="svg">SVG（文本）</option>
+            <option value="binary">图片/字体（已压缩）</option>
+          </select>
+        </div>
+        <div>
+          <div class="bar-row"><span>原始</span><div class="bar-track"><div class="bar-fill raw" id="barRaw" style="width:100%"></div></div><span id="cmpRaw">180 KB</span></div>
+          <div class="bar-row"><span>gzip</span><div class="bar-track"><div class="bar-fill gz" id="barGz" style="width:0%"></div></div><span id="cmpGz">—</span></div>
+          <div class="bar-row"><span>Brotli</span><div class="bar-track"><div class="bar-fill br" id="barBr" style="width:0%"></div></div><span id="cmpBr">—</span></div>
+          <div class="result-note" id="cmpNote">等待计算…</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 5. 资源优先级瀑布 ================= -->
+    <section class="box" aria-labelledby="s5">
+      <h2 id="s5">5 · 资源优先级瀑布图</h2>
+      <p class="hint">对比“默认加载”和“LCP 图 preload + 字体 preload + 首屏外懒加载”。虚线网格每格 50ms，紫色竖线是本轮 LCP。</p>
+      <div class="row" style="margin: 8px 0;">
+        <button class="btn" id="btnWf" type="button">切换到优化后编排</button>
+        <span class="lcp-pill" id="wfLcpPill">LCP ≈ 370ms</span>
+      </div>
+      <div class="wf-head"><span>资源</span><span>0 → 600ms</span><span>耗时</span></div>
+      <div id="wfRows"></div>
+      <p class="hint" id="wfNote">默认编排里，LCP 图要等 JS 解析后才发现，形成“阶梯式”瀑布。</p>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    'use strict';
+
+    /* ============================================================
+       公共工具：统一登记定时器，重置/重复点击时不叠加
+       ============================================================ */
+    const $ = (id) => document.getElementById(id);
+    const timers = new Set();
+
+    function later(fn, ms) {
+      const id = setTimeout(() => { timers.delete(id); fn(); }, ms);
+      timers.add(id);
+      return id;
+    }
+
+    function clearTimers() {
+      timers.forEach((id) => clearTimeout(id));
+      timers.clear();
+    }
+
+    let toastTimer = null;
+    function toast(message) {
+      const el = $('toast');
+      el.textContent = message;
+      el.className = 'toast show';
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { el.className = 'toast'; }, 2200);
+    }
+
+    /* ============================================================
+       1. 缓存头模拟器
+       ============================================================ */
+    const PRESETS = {
+      html: { header: 'no-cache', etag: '"html-v1"', size: 15, label: 'HTML 入口页', note: 'HTML 每次都应验证，发版后立即生效；CDN 可用短 s-maxage。' },
+      hjs: { header: 'public, max-age=31536000, immutable', etag: '"js-9f3c2a1b"', size: 180, label: '带 hash 的 JS', note: 'URL 与内容绑定，可放心长缓存；发版后 hash 变，旧缓存自然失效。' },
+      css: { header: 'public, max-age=31536000, immutable', etag: '"css-71b2e9d0"', size: 42, label: 'CSS（带 hash）', note: '同带 hash JS：一年 + immutable。若 CSS 不带 hash，请改用 no-cache。' },
+      image: { header: 'public, max-age=31536000, immutable', etag: '"img-4d8a1c77"', size: 240, label: '图片（内容稳定）', note: '图片体积大，长缓存收益最高；格式优先 AVIF/WebP，注意 Vary: Accept-Encoding。' },
+      api: { header: 'private, no-store', etag: '"api-user-1"', size: 8, label: '用户私有 API', note: '带用户身份的数据不允许任何共享缓存；no-store 避免落盘。' },
+      font: { header: 'public, max-age=31536000, immutable', etag: '"font-2b7c91aa"', size: 90, label: '字体 WOFF2', note: '字体按 CORS 获取，preload 必须带 crossorigin；子集化后再长缓存。' }
+    };
+
+    const sim = { stored: false, storedAt: 0, storedEtag: '', version: 1, time: 0, size: 15, type: 'html', events: [] };
+
+    function parseCacheControl(raw) {
+      const text = String(raw || '').toLowerCase();
+      const match = (re) => { const m = text.match(re); return m ? Number(m[1]) : null; };
+      return {
+        noStore: /\bno-store\b/.test(text),
+        noCache: /\bno-cache\b/.test(text),
+        immutable: /\bimmutable\b/.test(text),
+        maxAge: match(/max-age\s*=\s*(\d+)/),
+        sMaxAge: match(/s-maxage\s*=\s*(\d+)/),
+        swr: match(/stale-while-revalidate\s*=\s*(\d+)/)
+      };
+    }
+
+    function currentEtag() {
+      const base = $('etagInput').value.trim() || '"v1"';
+      // 发版后服务器 ETag 变化（模拟新内容）
+      return sim.version === 1 ? base : base.replace(/^"|"$/g, '') + '-v' + sim.version + '"';
+    }
+
+    function formatSeconds(value) {
+      if (value >= 86400) return (value / 86400).toFixed(1) + ' 天';
+      if (value >= 3600) return (value / 3600).toFixed(1) + ' 小时';
+      if (value >= 60) return (value / 60).toFixed(1) + ' 分';
+      return value + ' 秒';
+    }
+
+    function addEvent(at, name, detail, kind) {
+      sim.events.push({ at, name, detail, kind });
+      renderTimeline();
+    }
+
+    function renderTimeline() {
+      const box = $('cacheTimeline');
+      box.innerHTML = '';
+      sim.events.forEach((ev) => {
+        const div = document.createElement('div');
+        div.className = 'event ' + ev.kind;
+        const t = document.createElement('div');
+        t.className = 't';
+        t.textContent = 'T+' + formatSeconds(ev.at);
+        const name = document.createElement('div');
+        name.className = 'name';
+        name.textContent = ev.name;
+        const detail = document.createElement('div');
+        detail.textContent = ev.detail;
+        div.append(t, name, detail);
+        box.appendChild(div);
+      });
+      box.scrollLeft = box.scrollWidth;
+    }
+
+    function setDecision(kind, title, sub, req, bytes) {
+      $('decisionCard').className = 'decision ' + kind;
+      $('decisionTitle').textContent = title;
+      $('decisionSub').textContent = sub;
+      $('statReq').textContent = req;
+      $('statBytes').textContent = bytes;
+      const age = sim.stored ? Math.max(0, Math.round(sim.time - sim.storedAt)) : 0;
+      $('statAge').textContent = sim.stored ? formatSeconds(age) : '0 s';
+    }
+
+    function revalidate(now) {
+      const server = currentEtag();
+      sim.time = now;
+      if (sim.storedEtag === server) {
+        addEvent(now, '条件请求 → 304', 'If-None-Match 命中，服务器只回头部', 'revalidate');
+        setDecision('revalidate', '304 Not Modified · 复用本地副本', '发送了条件请求，响应无正文；节省带宽但仍有一次 RTT。', '1', '≈0.2 KB');
+      } else {
+        addEvent(now, '条件请求 → 200', 'ETag 已变化，返回新内容并更新缓存', 'network');
+        sim.stored = true;
+        sim.storedAt = now;
+        sim.storedEtag = server;
+        setDecision('network', '200 OK · 内容已更新', '服务器内容变化（或发版），旧副本被新响应替换。', '1', sim.size + ' KB');
+      }
+    }
+
+    function runSimulation(action) {
+      clearTimers();
+      const p = parseCacheControl($('ccInput').value);
+      const now = sim.time;
+      sim.size = PRESETS[sim.type].size;
+
+      if (action === 'first') {
+        sim.stored = false;
+        sim.events = [];
+        sim.time = 0;
+        sim.version = 1;
+        sim.storedEtag = currentEtag();
+        if (p.noStore) {
+          addEvent(0, '200 OK · 不写缓存', 'no-store：浏览器与代理均不得落盘', 'nostore');
+          setDecision('nostore', 'no-store · 每次都必须回源', '响应被允许使用，但不会写入任何缓存；下一次访问仍是完整请求。', '1', sim.size + ' KB');
+        } else {
+          sim.stored = true;
+          sim.storedAt = 0;
+          if (p.noCache) {
+            addEvent(0, '200 OK · 写入但需验证', 'no-cache：可存，但复用前必须回源校验', 'revalidate');
+            setDecision('revalidate', 'no-cache · 已缓存但每次验证', '首次响应写入缓存；再次访问会发条件请求（ETag/Last-Modified）。', '1', sim.size + ' KB');
+          } else {
+            addEvent(0, '200 OK · 写入缓存', '按 max-age=' + (p.maxAge ?? 0) + ' 计算新鲜期', 'hit');
+            setDecision('hit', '首次访问 · 已写入本地缓存', '新鲜期内再次访问可直接命中；max-age=' + (p.maxAge ?? 0) + ' 秒。', '1', sim.size + ' KB');
+          }
+        }
+        renderTimeline();
+        toast('已模拟首次访问：' + PRESETS[sim.type].label);
+        return;
+      }
+
+      if (action === 'again') {
+        sim.time = now + 2;
+        if (p.noStore || !sim.stored) {
+          addEvent(sim.time, p.noStore ? 'no-store · 200' : '无缓存 · 200', '完整回源' + (p.noStore ? '，不落盘' : '并写入'), p.noStore ? 'nostore' : 'network');
+          if (!p.noStore) {
+            sim.stored = true;
+            sim.storedAt = sim.time;
+            sim.storedEtag = currentEtag();
+          }
+          setDecision(p.noStore ? 'nostore' : 'network', p.noStore ? 'no-store · 未命中' : '200 OK · 重新写入缓存', '没有可复用的缓存副本。', '1', sim.size + ' KB');
+        } else if (p.noCache) {
+          revalidate(sim.time);
+        } else {
+          const age = sim.time - sim.storedAt;
+          if (p.immutable || age <= (p.maxAge ?? 0)) {
+            addEvent(sim.time, '本地缓存命中', '年龄 ' + formatSeconds(age) + ' ≤ max-age；未发请求', 'hit');
+            setDecision('hit', 'Cache Hit · 0 请求', (p.immutable ? 'immutable：刷新也不回源验证；' : '') + '直接用本地副本。', '0', '0 KB');
+          } else {
+            revalidate(sim.time);
+          }
+        }
+        renderTimeline();
+        toast('已模拟再次访问（T+' + formatSeconds(sim.time) + '）');
+        return;
+      }
+
+      if (action === 'expire') {
+        const ttl = p.maxAge ?? 0;
+        sim.time = now + Math.max(ttl + 10, 10);
+        if (p.noStore || !sim.stored) {
+          addEvent(sim.time, '无缓存 · 200', '没有可复用副本，完整回源', 'network');
+          setDecision(p.noStore ? 'nostore' : 'network', '无缓存 · 回源 200', 'no-store 不会留下副本；其他情况可重新写入。', '1', sim.size + ' KB');
+        } else if (ttl === 0 && !p.noCache) {
+          addEvent(sim.time, '没有 max-age · 每次验证', '复用前都要回源校验', 'revalidate');
+          revalidate(sim.time);
+        } else {
+          const age = sim.time - sim.storedAt;
+          if (p.swr && age <= ttl + p.swr) {
+            addEvent(sim.time, '返回旧副本 + 后台更新', 'stale-while-revalidate 窗口内', 'revalidate');
+            setDecision('revalidate', 'Stale · 先返回旧副本', '过期但在 SWR 窗口（' + p.swr + ' 秒）内，后台刷新缓存。', '0（后台 1）', '0 KB');
+          } else {
+            addEvent(sim.time, '已过期 · 触发验证', '年龄 ' + formatSeconds(age) + ' > max-age ' + ttl, 'revalidate');
+            revalidate(sim.time);
+          }
+        }
+        renderTimeline();
+        toast('已把模拟时钟推进到 T+' + formatSeconds(sim.time));
+        return;
+      }
+
+      if (action === 'release') {
+        sim.version += 1;
+        sim.time = now + 1;
+        addEvent(sim.time, '发布 v' + sim.version, '内容与 ETag 变化；带 hash 资源会换 URL', 'network');
+        if (!sim.stored || p.noStore) {
+          setDecision(p.noStore ? 'nostore' : 'network', '发版后 · 无缓存可复用', '完整回源拿到新版本。', '1', sim.size + ' KB');
+        } else if (p.immutable && !p.noCache && (sim.time - sim.storedAt) <= (p.maxAge ?? 0)) {
+          addEvent(sim.time, '长缓存仍在有效期', 'URL 未变时，旧副本继续生效（可能落后一版）', 'hit');
+          setDecision('hit', '发版后 · 仍命中旧缓存', 'immutable 在 max-age 内不验证；这正是“发版后仍看到旧页面”的原因。带 hash 的 URL 会变，从而避开此问题。', '0', '0 KB');
+        } else {
+          revalidate(sim.time);
+        }
+        renderTimeline();
+        toast('已模拟发布 v' + sim.version + '（ETag 已变化）');
+      }
+    }
+
+    function applyPreset(type) {
+      sim.type = type;
+      const p = PRESETS[type];
+      $('ccInput').value = p.header;
+      $('etagInput').value = p.etag;
+      sim.size = p.size;
+      sim.stored = false;
+      sim.storedAt = 0;
+      sim.storedEtag = '';
+      sim.version = 1;
+      sim.time = 0;
+      sim.events = [];
+      $('cacheTip').innerHTML = '资源：<code>' + p.label + '</code> · ' + p.note;
+      $('cacheTimeline').innerHTML = '';
+      $('decisionCard').className = 'decision';
+      $('decisionTitle').textContent = '等待模拟';
+      $('decisionSub').textContent = '先点“首次访问”，观察该资源类型的缓存决策。';
+      $('statReq').textContent = '0';
+      $('statBytes').textContent = '0 KB';
+      $('statAge').textContent = '0 s';
+    }
+
+    $('resType').addEventListener('change', (e) => applyPreset(e.target.value));
+    $('btnFirst').addEventListener('click', () => runSimulation('first'));
+    $('btnAgain').addEventListener('click', () => runSimulation('again'));
+    $('btnExpire').addEventListener('click', () => runSimulation('expire'));
+    $('btnRelease').addEventListener('click', () => runSimulation('release'));
+
+    /* ============================================================
+       2. SW 三策略动画
+       ============================================================ */
+    function initStepIds() {
+      const cf = $('cfSteps').children;
+      const nf = $('nfSteps').children;
+      const swr = $('swrSteps').children;
+      for (let i = 0; i < 4; i++) {
+        cf[i].id = 'cf' + (i + 1);
+        nf[i].id = 'nf' + (i + 1);
+        swr[i].id = 'swr' + (i + 1);
+      }
+    }
+
+    function resetLane(stepIds, statusId, timeId) {
+      stepIds.forEach((id) => $(id).classList.remove('on'));
+      $(statusId).textContent = '待运行';
+      $(statusId).className = 'lane-status';
+      $(timeId).textContent = '—';
+    }
+
+    function animateLane(stepIds, statusId, timeId, offsets, finalText, label) {
+      $(statusId).textContent = '运行中…';
+      $(statusId).className = 'lane-status run';
+      stepIds.forEach((id, index) => {
+        later(() => { $(id).classList.add('on'); }, offsets[index]);
+      });
+      later(() => {
+        $(statusId).textContent = '完成';
+        $(statusId).className = 'lane-status';
+        $(timeId).textContent = finalText;
+        toast(label + ' 完成：' + finalText);
+      }, offsets[offsets.length - 1] + 80);
+    }
+
+    function runStrategies() {
+      clearTimers();
+      resetLane(['cf1', 'cf2', 'cf3', 'cf4'], 'cfStatus', 'cfTime');
+      resetLane(['nf1', 'nf2', 'nf3', 'nf4'], 'nfStatus', 'nfTime');
+      resetLane(['swr1', 'swr2', 'swr3', 'swr4'], 'swrStatus', 'swrTime');
+      animateLane(['cf1', 'cf2', 'cf3', 'cf4'], 'cfStatus', 'cfTime', [0, 60, 140, 260], '≈8ms（缓存命中）', 'Cache First');
+      animateLane(['nf1', 'nf2', 'nf3', 'nf4'], 'nfStatus', 'nfTime', [0, 80, 700, 820], '≈180ms（网络往返）', 'Network First');
+      animateLane(['swr1', 'swr2', 'swr3', 'swr4'], 'swrStatus', 'swrTime', [0, 60, 700, 820], '≈8ms 返回 / 180ms 后台更新', 'Stale While Revalidate');
+    }
+
+    $('btnRunSw').addEventListener('click', runStrategies);
+    $('btnResetSw').addEventListener('click', () => {
+      clearTimers();
+      resetLane(['cf1', 'cf2', 'cf3', 'cf4'], 'cfStatus', 'cfTime');
+      resetLane(['nf1', 'nf2', 'nf3', 'nf4'], 'nfStatus', 'nfTime');
+      resetLane(['swr1', 'swr2', 'swr3', 'swr4'], 'swrStatus', 'swrTime');
+      toast('已重置策略动画');
+    });
+
+    /* ============================================================
+       3. 版本化缓存清理
+       ============================================================ */
+    const verState = { version: 1 };
+
+    function renderCaches(dyingVersion) {
+      const list = $('cacheList');
+      list.innerHTML = '';
+      const current = verState.version;
+      const versions = [current, current - 1].filter((v) => v >= 1);
+      versions.forEach((v) => {
+        ['app', 'static', 'api'].forEach((prefix) => {
+          const chip = document.createElement('span');
+          const isOld = v !== current;
+          chip.className = 'cache-chip ' + (isOld ? 'dying' : 'active');
+          chip.textContent = prefix + '-v' + v;
+          list.appendChild(chip);
+        });
+      });
+      $('versionBadge').textContent = '当前版本 v' + current;
+      $('cacheCleanLog').textContent = dyingVersion
+        ? 'activate：保留 v' + current + '，正在删除 v' + dyingVersion + ' 的 3 个旧缓存…'
+        : '当前保留 v' + current + ' 的三个缓存桶（app/static/api）。';
+    }
+
+    $('btnBump').addEventListener('click', () => {
+      clearTimers();
+      const old = verState.version;
+      verState.version += 1;
+      renderCaches(old);
+      later(() => {
+        renderCaches(null);
+        $('cacheCleanLog').textContent = '清理完成：旧版本 v' + old + ' 已删除，仅保留 v' + verState.version + '。';
+        toast('已发布 v' + verState.version + ' 并清理旧缓存');
+      }, 700);
+    });
+
+    $('btnResetVer').addEventListener('click', () => {
+      clearTimers();
+      verState.version = 1;
+      renderCaches(null);
+      toast('缓存版本已重置为 v1');
+    });
+
+    /* ============================================================
+       4. 压缩体积计算器
+       ============================================================ */
+    const RATIOS = {
+      js: { gz: 0.30, br: 0.22 }, css: { gz: 0.30, br: 0.22 },
+      html: { gz: 0.28, br: 0.20 }, json: { gz: 0.25, br: 0.18 },
+      svg: { gz: 0.30, br: 0.20 }, binary: { gz: 0.98, br: 0.98 }
+    };
+
+    function updateCompression() {
+      const raw = Math.max(1, Number($('rawSize').value) || 1);
+      const type = $('contentType').value;
+      const ratio = RATIOS[type] || RATIOS.js;
+      $('cmpRaw').textContent = raw.toFixed(0) + ' KB';
+      $('cmpGz').textContent = (raw * ratio.gz).toFixed(0) + ' KB';
+      $('cmpBr').textContent = (raw * ratio.br).toFixed(0) + ' KB';
+      $('barGz').style.width = Math.max(2, ratio.gz * 100) + '%';
+      $('barBr').style.width = Math.max(2, ratio.br * 100) + '%';
+      $('barRaw').style.width = '100%';
+      const note = $('cmpNote');
+      if (type === 'binary') {
+        note.className = 'result-note warn';
+        note.textContent = '图片/字体已是压缩格式，gzip/Brotli 几乎无收益，甚至可能略增；请改用 AVIF/WebP 或字体子集化。';
+      } else {
+        note.className = 'result-note';
+        note.textContent = 'Brotli 估算可省 ' + (raw - raw * ratio.br).toFixed(0) + ' KB（约 ' +
+          (((raw - raw * ratio.br) / raw) * 100).toFixed(0) + '%）。实际压缩比取决于重复内容与压缩级别。';
+      }
+    }
+
+    $('rawSize').addEventListener('input', updateCompression);
+    $('contentType').addEventListener('change', updateCompression);
+
+    /* ============================================================
+       5. 资源优先级瀑布
+       ============================================================ */
+    let wfOptimized = false;
+    const WF_MAX = 600;
+
+    const WF_DEFAULT = [
+      { name: 'HTML', start: 0, dur: 40, cls: 'asset' },
+      { name: 'CSS', start: 40, dur: 50, cls: 'critical' },
+      { name: 'JS', start: 90, dur: 160, cls: 'critical' },
+      { name: 'LCP 图', start: 250, dur: 120, cls: 'critical' },
+      { name: '字体', start: 250, dur: 80, cls: 'asset' },
+      { name: '首屏外图', start: 500, dur: 90, cls: 'lazy' }
+    ];
+
+    const WF_OPTIMIZED = [
+      { name: 'HTML', start: 0, dur: 40, cls: 'asset' },
+      { name: 'LCP 图', start: 5, dur: 120, cls: 'critical' },
+      { name: '字体', start: 5, dur: 70, cls: 'asset' },
+      { name: 'CSS', start: 40, dur: 50, cls: 'critical' },
+      { name: 'JS', start: 90, dur: 110, cls: 'critical' },
+      { name: '首屏外图', start: 400, dur: 90, cls: 'lazy' }
+    ];
+
+    function renderWaterfall() {
+      const data = wfOptimized ? WF_OPTIMIZED : WF_DEFAULT;
+      const lcp = wfOptimized ? 125 : 370;
+      const rows = $('wfRows');
+      rows.innerHTML = '';
+      data.forEach((item) => {
+        const row = document.createElement('div');
+        row.className = 'wf-row';
+        const label = document.createElement('span');
+        label.textContent = item.name;
+        const track = document.createElement('div');
+        track.className = 'wf-track';
+        const bar = document.createElement('div');
+        bar.className = 'wf-bar ' + item.cls;
+        bar.style.left = (item.start / WF_MAX) * 100 + '%';
+        bar.style.width = Math.max(1, (item.dur / WF_MAX) * 100) + '%';
+        track.appendChild(bar);
+        if (item.name === 'LCP 图') {
+          const marker = document.createElement('div');
+          marker.className = 'wf-marker';
+          marker.dataset.label = 'LCP ' + (item.start + item.dur) + 'ms';
+          marker.style.left = ((item.start + item.dur) / WF_MAX) * 100 + '%';
+          track.appendChild(marker);
+        }
+        const time = document.createElement('span');
+        time.className = 'wf-times';
+        time.textContent = item.start + '→' + (item.start + item.dur) + 'ms';
+        row.append(label, track, time);
+        rows.appendChild(row);
+      });
+      $('wfLcpPill').textContent = 'LCP ≈ ' + lcp + 'ms';
+      $('wfNote').textContent = wfOptimized
+        ? '优化后：LCP 图与字体 preload 与 HTML 并行，JS 也被前移；LCP 从 370ms 降到约 125ms。'
+        : '默认编排里，LCP 图要等 JS 解析后才发现，形成“阶梯式”瀑布。';
+    }
+
+    $('btnWf').addEventListener('click', () => {
+      wfOptimized = !wfOptimized;
+      $('btnWf').textContent = wfOptimized ? '切回默认编排' : '切换到优化后编排';
+      renderWaterfall();
+      toast(wfOptimized ? '已切换到 preload + 懒加载编排' : '已切回默认编排');
+    });
+
+    /* ============================================================
+       全局重置
+       ============================================================ */
+    function resetAll() {
+      clearTimers();
+      applyPreset('html');
+      $('resType').value = 'html';
+      resetLane(['cf1', 'cf2', 'cf3', 'cf4'], 'cfStatus', 'cfTime');
+      resetLane(['nf1', 'nf2', 'nf3', 'nf4'], 'nfStatus', 'nfTime');
+      resetLane(['swr1', 'swr2', 'swr3', 'swr4'], 'swrStatus', 'swrTime');
+      verState.version = 1;
+      renderCaches(null);
+      $('rawSize').value = 180;
+      $('contentType').value = 'js';
+      updateCompression();
+      wfOptimized = false;
+      $('btnWf').textContent = '切换到优化后编排';
+      renderWaterfall();
+      toast('已重置所有演示');
+    }
+
+    $('btnResetAll').addEventListener('click', resetAll);
+
+    /* ============================================================
+       首屏初始化：先建立元素引用再渲染，避免首屏报错
+       ============================================================ */
+    (function init() {
+      initStepIds();
+      applyPreset('html');
+      renderCaches(null);
+      updateCompression();
+      renderWaterfall();
+    })();
+  </script>
+</body>
+
+</html>

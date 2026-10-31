@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 06：交互式性能审计控制台
+  ------------------------------------------------------------
+  【示例编号】perf / 06 / index-01
+  【知识点】
+    1. Lighthouse 式审计：指标权重、加权得分、90 分门禁
+    2. 火焰图阅读：>50ms 长任务、TBT 计算（超出 50ms 部分之和）
+    3. 长任务归因：大循环 / JSON 解析 / 交互处理，对应优化动作
+    4. 性能预算：首屏 JS/CSS/图片/字体体积与预算对比
+    5. RUM 上报链路：web-vitals 采集 → p75 聚合 → sendBeacon →
+       看板与告警
+    6. 线上故障排查决策树：白屏 / 卡顿 / 慢加载三条路径
+  【运行方式】
+    纯单文件、零网络、零 CDN、零外部图片与字体，
+    双击 file:// 直接打开即可运行。
+  【效果说明】
+    顶部“重置所有演示”→ Lighthouse 检查清单（勾选实时算分）
+    → SVG 火焰图（点击长任务看归因）→ 性能预算计算器 →
+    RUM 上报流程动画 → 故障排查决策树。
+  【注意事项】
+    1. 分数、TBT、预算均为教学模拟，真实审计以 Lighthouse /
+       DevTools / 线上 RUM 数据为准。
+    2. 全程只用页面内状态卡/日志/toast 反馈，无 alert/prompt。
+    3. 所有动画定时器统一登记，重复点击与重置会先清理，不会叠加。
+  ============================================================
+-->
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>示例 06 · 交互式性能审计控制台</title>
+  <style>
+    /* ---------- 主题变量与基础 ---------- */
+    :root {
+      --bg: #f2f5f9; --card: #fff; --ink: #1f2a37; --muted: #667085;
+      --line: #dce3ec; --brand: #2563eb; --brand-soft: #e8efff;
+      --green: #0f8a4d; --green-soft: #e6f6ee; --amber: #b45309;
+      --amber-soft: #fff4e5; --red: #c0392b; --red-soft: #fdeceb;
+      --violet: #6d28d9; --violet-soft: #f1eafe; --radius: 12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      background: radial-gradient(1200px 400px at 80% -10%, #e3edff 0%, transparent 60%), var(--bg);
+      color: var(--ink); line-height: 1.65; padding: 20px;
+    }
+    .wrap { max-width: 1000px; margin: 0 auto; }
+    .top { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    h1 { font-size: 1.35rem; }
+    .sub { color: var(--muted); font-size: .84rem; margin-top: 2px; }
+    section.box { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; box-shadow: 0 3px 10px rgba(31,42,55,.04); }
+    h2 { font-size: 1.02rem; margin-bottom: 4px; }
+    h3 { font-size: .88rem; margin: 14px 0 8px; }
+    p, li, td, th { font-size: .84rem; }
+    .hint { color: var(--muted); font-size: .78rem; margin-top: 6px; }
+    code { background: #eef2f7; border-radius: 4px; padding: 0 5px; font-size: .76rem; font-family: "SF Mono", Consolas, monospace; }
+    .btn { border: 0; border-radius: 8px; background: var(--brand); color: #fff; font-size: .82rem; font-weight: 600; padding: 8px 14px; cursor: pointer; transition: transform .12s ease; }
+    .btn:hover { transform: translateY(-1px); }
+    .btn.ghost { background: #eef2f8; color: var(--ink); border: 1px solid var(--line); }
+    .btn.soft { background: var(--brand-soft); color: var(--brand); }
+    .btn.small { font-size: .76rem; padding: 6px 10px; }
+    .btn:focus-visible, input:focus-visible { outline: 3px solid rgba(37,99,235,.3); outline-offset: 1px; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    label.field { display: block; font-size: .78rem; font-weight: 600; margin-bottom: 4px; }
+    input[type="number"] { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: .82rem; font-family: inherit; background: #fbfcfe; color: var(--ink); }
+
+    /* ---------- 审计清单 ---------- */
+    .score-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 0 4px; }
+    .score-num { font-size: 1.5rem; font-weight: 800; color: var(--brand); min-width: 76px; }
+    .score-num.ok { color: var(--green); }
+    .score-num.warn { color: var(--amber); }
+    .score-num.bad { color: var(--red); }
+    .progress { flex: 1 1 220px; height: 12px; background: #eef2f7; border-radius: 999px; overflow: hidden; }
+    .progress > span { display: block; height: 100%; width: 0; background: var(--brand); transition: width .3s ease; }
+    .status-pill { border-radius: 999px; padding: 3px 10px; font-size: .74rem; font-weight: 700; }
+    .status-pill.ok { background: var(--green-soft); color: var(--green); }
+    .status-pill.bad { background: var(--red-soft); color: var(--red); }
+    .checklist { margin-top: 8px; border-top: 1px solid var(--line); }
+    .check-row { display: grid; grid-template-columns: 26px 1fr 48px 72px; gap: 8px; align-items: center; padding: 7px 2px; border-bottom: 1px dashed var(--line); }
+    .check-row input { width: 16px; height: 16px; accent-color: var(--brand); }
+    .check-row .name { font-size: .8rem; }
+    .check-row .weight { font-size: .72rem; color: var(--muted); text-align: right; }
+    .check-row .flag { font-size: .7rem; text-align: right; color: var(--muted); }
+    .check-row.done .flag { color: var(--green); font-weight: 700; }
+
+    /* ---------- 火焰图 ---------- */
+    .flame-wrap { border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe; padding: 8px; overflow-x: auto; }
+    #flameSvg { width: 100%; min-width: 640px; height: auto; display: block; cursor: pointer; }
+    .flame-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: .72rem; color: var(--muted); margin-top: 6px; }
+    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: 1px; }
+    .flame-detail { border: 1px solid var(--line); border-left: 4px solid var(--violet); border-radius: 8px; background: var(--violet-soft); padding: 9px 12px; margin-top: 10px; min-height: 64px; }
+    .flame-detail h4 { font-size: .84rem; margin-bottom: 2px; }
+    .flame-detail p { font-size: .76rem; }
+    .tbt-pill { display: inline-block; background: var(--red-soft); color: var(--red); border-radius: 999px; padding: 2px 10px; font-size: .74rem; font-weight: 700; }
+
+    /* ---------- 预算计算器 ---------- */
+    .budget-grid { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 10px; margin: 10px 0; }
+    .budget-input { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #fbfcfe; }
+    .budget-input label { display: block; font-size: .72rem; color: var(--muted); margin-bottom: 3px; }
+    .budget-input input { border: 0; background: transparent; padding: 0; font-size: .84rem; font-weight: 700; width: 100%; }
+    .budget-row { display: grid; grid-template-columns: 58px 1fr 100px; gap: 8px; align-items: center; margin: 8px 0; font-size: .76rem; }
+    .budget-track { height: 12px; background: #eef2f7; border-radius: 999px; overflow: hidden; position: relative; }
+    .budget-fill { height: 100%; border-radius: 999px; background: var(--green); transition: width .25s ease; }
+    .budget-fill.over { background: var(--red); }
+    .budget-state { text-align: right; font-size: .72rem; font-weight: 700; }
+    .budget-state.ok { color: var(--green); }
+    .budget-state.over { color: var(--red); }
+    .budget-summary { font-size: .76rem; color: var(--muted); margin-top: 6px; }
+
+    /* ---------- RUM 流程 ---------- */
+    .rum-flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 12px; }
+    .rum-step { border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe; padding: 10px 8px; text-align: center; position: relative; transition: all .2s ease; }
+    .rum-step.on { border-color: var(--brand); background: var(--brand-soft); transform: translateY(-2px); }
+    .rum-step b { display: block; font-size: .8rem; }
+    .rum-step small { font-size: .68rem; color: var(--muted); }
+    .rum-step .num { display: inline-block; width: 20px; height: 20px; line-height: 20px; border-radius: 50%; background: var(--violet-soft); color: var(--violet); font-size: .72rem; font-weight: 700; margin-bottom: 3px; }
+    .rum-log { background: #0f172a; color: #a7f3d0; border-radius: 8px; padding: 9px 12px; font-family: "SF Mono", Consolas, monospace; font-size: .72rem; min-height: 62px; margin-top: 10px; white-space: pre-wrap; }
+
+    /* ---------- 决策树 ---------- */
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 12px; }
+    .tab { border: 1px solid var(--line); background: #fbfcfe; border-radius: 8px; padding: 7px 14px; font-size: .8rem; cursor: pointer; }
+    .tab.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 700; }
+    .tree { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .node { border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe; padding: 9px 10px; cursor: pointer; transition: all .2s ease; }
+    .node:hover { border-color: var(--brand); }
+    .node.on { border-color: var(--violet); background: var(--violet-soft); }
+    .node .q { font-size: .78rem; font-weight: 700; }
+    .node .a { font-size: .7rem; color: var(--muted); margin-top: 2px; }
+    .node .arrow { color: var(--brand); font-size: .72rem; margin-top: 3px; }
+    .triage-detail { border: 1px solid var(--line); border-left: 4px solid var(--red); border-radius: 8px; background: #fff; padding: 10px 12px; margin-top: 10px; min-height: 78px; }
+    .triage-detail h4 { font-size: .84rem; margin-bottom: 3px; }
+    .triage-detail p { font-size: .76rem; }
+
+    /* ---------- toast ---------- */
+    .toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 18px); background: #1f2a37; color: #fff; border-radius: 8px; padding: 9px 16px; font-size: .8rem; opacity: 0; pointer-events: none; transition: all .22s ease; z-index: 20; max-width: 90vw; }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-width: 760px) {
+      body { padding: 12px; }
+      .budget-grid { grid-template-columns: repeat(2, 1fr); }
+      .rum-flow, .tree { grid-template-columns: 1fr; }
+      .check-row { grid-template-columns: 26px 1fr 40px 60px; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div>
+        <h1>交互式性能审计控制台</h1>
+        <p class="sub">Lighthouse 清单 · 火焰图 · 预算 · RUM · 故障决策树</p>
+      </div>
+      <button class="btn ghost" id="btnResetAll" type="button">重置所有演示</button>
+    </header>
+
+    <!-- ================= 1. 审计清单 ================= -->
+    <section class="box" aria-labelledby="s1">
+      <h2 id="s1">1 · Lighthouse 式检查清单</h2>
+      <p class="hint">勾选已完成的审计项，实时计算加权得分（满分 100，90 分视为门禁通过）。权重对应“对首屏体验的影响”。</p>
+      <div class="score-bar">
+        <div class="score-num" id="scoreNum">0</div>
+        <div class="progress"><span id="scoreBar"></span></div>
+        <span class="status-pill bad" id="scorePill">未通过</span>
+      </div>
+      <div class="checklist" id="checklist"></div>
+      <div class="row" style="margin-top: 10px;">
+        <button class="btn soft small" id="btnCheckAll" type="button">全部标记通过</button>
+        <button class="btn ghost small" id="btnCheckClear" type="button">清空勾选</button>
+      </div>
+      <p class="hint">清单不是替代 Lighthouse，而是把审计结论翻译成工程任务；每项都应绑定负责人与验收标准。</p>
+    </section>
+
+    <!-- ================= 2. 火焰图 ================= -->
+    <section class="box" aria-labelledby="s2">
+      <h2 id="s2">2 · 火焰图阅读与长任务归因</h2>
+      <p class="hint">下方是主线程 0→1000ms 的简化火焰图。红色条为超过 50ms 的长任务；点击任意任务查看“阻塞时间”与优化建议。</p>
+      <div class="flame-wrap">
+        <svg id="flameSvg" viewBox="0 0 1000 190" role="img" aria-label="主线程火焰图"></svg>
+      </div>
+      <div class="flame-legend">
+        <span><span class="dot" style="background:#94a3b8"></span>普通任务（≤50ms）</span>
+        <span><span class="dot" style="background:#c0392b"></span>长任务（>50ms）</span>
+        <span><span class="dot" style="background:#6d28d9"></span>FCP / 交互标记</span>
+        <span class="tbt-pill" id="tbtPill">TBT ≈ 425ms</span>
+      </div>
+      <div class="flame-detail" id="flameDetail">
+        <h4>点击一个任务条</h4>
+        <p>长任务的阻塞时间 = 时长 − 50ms；所有长任务的阻塞时间之和就是 TBT。</p>
+      </div>
+    </section>
+
+    <!-- ================= 3. 性能预算 ================= -->
+    <section class="box" aria-labelledby="s3">
+      <h2 id="s3">3 · 性能预算计算器</h2>
+      <p class="hint">输入首屏资源体积（KB），与预算对比。预算参考：JS 170KB、CSS 50KB、图片 300KB、字体 100KB（按业务与网络调整）。</p>
+      <div class="budget-grid">
+        <div class="budget-input"><label for="bJs">JS（KB）</label><input id="bJs" type="number" min="0" max="2000" value="210"></div>
+        <div class="budget-input"><label for="bCss">CSS（KB）</label><input id="bCss" type="number" min="0" max="1000" value="48"></div>
+        <div class="budget-input"><label for="bImg">图片（KB）</label><input id="bImg" type="number" min="0" max="3000" value="420"></div>
+        <div class="budget-input"><label for="bFont">字体（KB）</label><input id="bFont" type="number" min="0" max="2000" value="90"></div>
+      </div>
+      <div id="budgetRows"></div>
+      <div class="budget-summary" id="budgetSummary">等待计算…</div>
+      <p class="hint">总预算不是万能线：同样 500KB，拆成 20 个请求与拆成 3 个请求，体验完全不同。</p>
+    </section>
+
+    <!-- ================= 4. RUM 上报流程 ================= -->
+    <section class="box" aria-labelledby="s4">
+      <h2 id="s4">4 · RUM 上报流程可视化</h2>
+      <p class="hint">真实用户的 LCP/INP/CLS 由 web-vitals 采集，按路由/设备维度聚合 p75，页面隐藏时用 sendBeacon 上报，最终进入看板与告警。</p>
+      <div class="rum-flow">
+        <div class="rum-step" id="rum1"><span class="num">1</span><b>采集</b><small>web-vitals：LCP/INP/CLS</small></div>
+        <div class="rum-step" id="rum2"><span class="num">2</span><b>聚合</b><small>按路由/设备取 p75</small></div>
+        <div class="rum-step" id="rum3"><span class="num">3</span><b>上报</b><small>visibilitychange + sendBeacon</small></div>
+        <div class="rum-step" id="rum4"><span class="num">4</span><b>看板 / 告警</b><small>版本回归对比与阈值</small></div>
+      </div>
+      <div class="row" style="margin-top: 10px;">
+        <button class="btn" id="btnRum" type="button">模拟一次上报</button>
+        <button class="btn ghost small" id="btnRumReset" type="button">重置流程</button>
+      </div>
+      <div class="rum-log" id="rumLog">// 点击“模拟一次上报”查看链路日志</div>
+    </section>
+
+    <!-- ================= 5. 故障决策树 ================= -->
+    <section class="box" aria-labelledby="s5">
+      <h2 id="s5">5 · 线上故障排查决策树</h2>
+      <p class="hint">按症状选择路径，再点击节点查看“下一步动作 / 常见根因 / 止损手段”。原则：先止损，再定位。</p>
+      <div class="tabs" id="triageTabs">
+        <button class="tab on" data-path="white" type="button">白屏</button>
+        <button class="tab" data-path="jank" type="button">卡顿</button>
+        <button class="tab" data-path="slow" type="button">慢加载</button>
+      </div>
+      <div class="tree" id="triageTree"></div>
+      <div class="triage-detail" id="triageDetail">
+        <h4>选择一条排查路径</h4>
+        <p>白屏先查影响范围与发布；卡顿先看内存与长任务；慢加载先分 TTFB 与下载/渲染。</p>
+      </div>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    'use strict';
+
+    /* ============================================================
+       公共工具：统一登记定时器，重复点击 / 重置不叠加
+       ============================================================ */
+    const $ = (id) => document.getElementById(id);
+    const timers = new Set();
+
+    function later(fn, ms) {
+      const id = setTimeout(() => { timers.delete(id); fn(); }, ms);
+      timers.add(id);
+      return id;
+    }
+
+    function clearTimers() {
+      timers.forEach((id) => clearTimeout(id));
+      timers.clear();
+    }
+
+    let toastTimer = null;
+    function toast(message) {
+      const el = $('toast');
+      el.textContent = message;
+      el.className = 'toast show';
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { el.className = 'toast'; }, 2200);
+    }
+
+    /* ============================================================
+       1. Lighthouse 式检查清单
+       ============================================================ */
+    const AUDITS = [
+      { id: 'lcp', name: 'LCP 主图：AVIF/WebP + fetchpriority=high + 预留尺寸', weight: 20, done: false },
+      { id: 'font', name: '关键字体 preload（带 crossorigin）+ font-display: swap', weight: 10, done: false },
+      { id: 'js', name: '首屏 JS 分包并控制在 170KB（gzip）以内', weight: 15, done: false },
+      { id: 'img', name: '首屏外图片 lazy + 低优先级；图片全部写宽高', weight: 15, done: false },
+      { id: 'compress', name: '文本资源启用 Brotli/gzip，静态预压缩', weight: 10, done: false },
+      { id: 'cache', name: 'HTML no-cache；带 hash 资源长缓存 immutable', weight: 10, done: false },
+      { id: 'third', name: '首屏第三方域 ≤5，非关键脚本延迟加载', weight: 5, done: false },
+      { id: 'cls', name: 'CLS ≤0.1（广告位/图片预留尺寸）', weight: 5, done: false },
+      { id: 'tbt', name: 'TBT ≤200ms（无 >50ms 的同步长任务）', weight: 5, done: false },
+      { id: 'inp', name: 'INP 埋点与交互路径长任务治理', weight: 5, done: false }
+    ];
+
+    function renderChecklist() {
+      const box = $('checklist');
+      box.innerHTML = '';
+      AUDITS.forEach((a) => {
+        const row = document.createElement('div');
+        row.className = 'check-row' + (a.done ? ' done' : '');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = a.done;
+        cb.setAttribute('aria-label', a.name);
+        cb.addEventListener('change', () => {
+          a.done = cb.checked;
+          renderScore();
+          renderChecklist();
+        });
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = a.name;
+        const weight = document.createElement('span');
+        weight.className = 'weight';
+        weight.textContent = a.weight + ' 分';
+        const flag = document.createElement('span');
+        flag.className = 'flag';
+        flag.textContent = a.done ? '已通过' : '待优化';
+        row.append(cb, name, weight, flag);
+        box.appendChild(row);
+      });
+    }
+
+    function renderScore() {
+      const total = AUDITS.reduce((sum, a) => sum + a.weight, 0);
+      const got = AUDITS.reduce((sum, a) => sum + (a.done ? a.weight : 0), 0);
+      const score = Math.round((got / total) * 100);
+      const num = $('scoreNum');
+      num.textContent = score;
+      num.className = 'score-num ' + (score >= 90 ? 'ok' : score >= 70 ? 'warn' : 'bad');
+      $('scoreBar').style.width = score + '%';
+      $('scoreBar').style.background = score >= 90 ? 'var(--green)' : score >= 70 ? 'var(--amber)' : 'var(--red)';
+      const pill = $('scorePill');
+      pill.textContent = score >= 90 ? '门禁通过' : '未通过（需 ≥90）';
+      pill.className = 'status-pill ' + (score >= 90 ? 'ok' : 'bad');
+    }
+
+    $('btnCheckAll').addEventListener('click', () => {
+      AUDITS.forEach((a) => { a.done = true; });
+      renderChecklist();
+      renderScore();
+      toast('已全部标记通过：得分 100');
+    });
+
+    $('btnCheckClear').addEventListener('click', () => {
+      AUDITS.forEach((a) => { a.done = false; });
+      renderChecklist();
+      renderScore();
+      toast('已清空勾选');
+    });
+
+    /* ============================================================
+       2. 火焰图
+       ============================================================ */
+    const TASKS = [
+      { id: 't1', name: 'HTML 解析', start: 0, dur: 55, kind: 'long', note: '首屏解析，属于必要成本；55ms 刚过阈值，关注 HTML 体积与流式输出。' },
+      { id: 't2', name: 'CSS 解析', start: 55, dur: 45, kind: 'normal', note: 'CSS 阻塞渲染；减少首屏 CSS 体积与选择器复杂度。' },
+      { id: 't3', name: 'JS 执行（大循环）', start: 100, dur: 240, kind: 'long', note: '同步大循环阻塞主线程；拆分任务、移入 Worker 或延迟执行。' },
+      { id: 't4', name: '样式 / 布局（抖动）', start: 340, dur: 80, kind: 'long', note: '布局抖动常见于循环读写 DOM；批量读、批量写，必要时用 content-visibility。' },
+      { id: 't5', name: 'JSON.parse 300KB', start: 420, dur: 180, kind: 'long', note: '大 JSON 同步解析；改为分片解析或移入 Worker。' },
+      { id: 't6', name: '交互处理（筛选）', start: 650, dur: 120, kind: 'long', note: '点击后同步筛选 2 万条数据；先渲染首屏结果，再后台计算。' },
+      { id: 't7', name: '空闲', start: 770, dur: 230, kind: 'idle', note: '主线程空闲；可用于 requestIdleCallback 预取或预计算。' }
+    ];
+
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+
+    function renderFlame() {
+      const svg = $('flameSvg');
+      svg.innerHTML = '';
+      // 时间刻度
+      for (let t = 0; t <= 1000; t += 100) {
+        const line = document.createElementNS(SVG_NS, 'line');
+        line.setAttribute('x1', t);
+        line.setAttribute('x2', t);
+        line.setAttribute('y1', 26);
+        line.setAttribute('y2', 178);
+        line.setAttribute('stroke', t % 500 === 0 ? '#cbd5e1' : '#eef2f7');
+        line.setAttribute('stroke-width', 1);
+        svg.appendChild(line);
+        const label = document.createElementNS(SVG_NS, 'text');
+        label.setAttribute('x', Math.min(t + 3, 965));
+        label.setAttribute('y', 20);
+        label.setAttribute('font-size', 10);
+        label.setAttribute('fill', '#667085');
+        label.textContent = t + 'ms';
+        svg.appendChild(label);
+      }
+      // 任务条：每个任务一行，纵轴表示调用层级
+      TASKS.forEach((task, index) => {
+        const y = 32 + index * 21;
+        const rect = document.createElementNS(SVG_NS, 'rect');
+        rect.setAttribute('x', task.start);
+        rect.setAttribute('y', y);
+        rect.setAttribute('width', Math.max(task.dur, 2));
+        rect.setAttribute('height', 15);
+        rect.setAttribute('rx', 4);
+        rect.setAttribute('fill', task.kind === 'long' ? '#c0392b' : task.kind === 'idle' ? '#dbe3ec' : '#94a3b8');
+        rect.setAttribute('data-id', task.id);
+        rect.setAttribute('tabindex', 0);
+        rect.style.cursor = 'pointer';
+        svg.appendChild(rect);
+
+        const text = document.createElementNS(SVG_NS, 'text');
+        text.setAttribute('x', Math.min(task.start + 5, 900));
+        text.setAttribute('y', y + 11);
+        text.setAttribute('font-size', 9.5);
+        text.setAttribute('fill', task.kind === 'long' ? '#fff' : '#1f2a37');
+        text.textContent = task.name + ' · ' + task.dur + 'ms';
+        text.style.pointerEvents = 'none';
+        svg.appendChild(text);
+      });
+      // FCP / 交互标记
+      [55, 650].forEach((t) => {
+        const marker = document.createElementNS(SVG_NS, 'line');
+        marker.setAttribute('x1', t);
+        marker.setAttribute('x2', t);
+        marker.setAttribute('y1', 26);
+        marker.setAttribute('y2', 178);
+        marker.setAttribute('stroke', '#6d28d9');
+        marker.setAttribute('stroke-width', 1.5);
+        marker.setAttribute('stroke-dasharray', '3 3');
+        svg.appendChild(marker);
+      });
+      const blocking = TASKS.filter((t) => t.kind !== 'idle' && t.dur > 50)
+        .reduce((sum, t) => sum + (t.dur - 50), 0);
+      $('tbtPill').textContent = 'TBT ≈ ' + blocking + 'ms';
+    }
+
+    function showFlameDetail(task) {
+      const box = $('flameDetail');
+      const isLong = task.kind === 'long';
+      const blocking = isLong ? task.dur - 50 : 0;
+      box.innerHTML = '';
+      const title = document.createElement('h4');
+      title.textContent = task.name + ' · ' + task.dur + 'ms' + (isLong ? '（长任务）' : task.kind === 'idle' ? '（空闲）' : '（普通任务）');
+      const line1 = document.createElement('p');
+      line1.textContent = '阻塞时间：' + (isLong ? blocking + 'ms（' + task.dur + ' − 50）' : '0ms（不计入 TBT）');
+      const line2 = document.createElement('p');
+      line2.textContent = '归因与建议：' + task.note;
+      box.append(title, line1, line2);
+    }
+
+    $('flameSvg').addEventListener('click', (e) => {
+      const id = e.target.getAttribute && e.target.getAttribute('data-id');
+      if (!id) return;
+      const task = TASKS.find((t) => t.id === id);
+      if (!task) return;
+      Array.from($('flameSvg').querySelectorAll('rect')).forEach((r) => {
+        r.setAttribute('stroke', r.getAttribute('data-id') === id ? '#6d28d9' : 'none');
+        r.setAttribute('stroke-width', r.getAttribute('data-id') === id ? 2 : 0);
+      });
+      showFlameDetail(task);
+    });
+
+    /* ============================================================
+       3. 性能预算
+       ============================================================ */
+    const BUDGETS = { js: 170, css: 50, img: 300, font: 100 };
+    const BUDGET_LABELS = { js: 'JS', css: 'CSS', img: '图片', font: '字体' };
+
+    function updateBudget() {
+      const values = {
+        js: Math.max(0, Number($('bJs').value) || 0),
+        css: Math.max(0, Number($('bCss').value) || 0),
+        img: Math.max(0, Number($('bImg').value) || 0),
+        font: Math.max(0, Number($('bFont').value) || 0)
+      };
+      const rows = $('budgetRows');
+      rows.innerHTML = '';
+      let overCount = 0;
+      Object.keys(BUDGETS).forEach((key) => {
+        const budget = BUDGETS[key];
+        const actual = values[key];
+        const over = actual > budget;
+        if (over) overCount += 1;
+        const row = document.createElement('div');
+        row.className = 'budget-row';
+        const label = document.createElement('span');
+        label.textContent = BUDGET_LABELS[key];
+        const track = document.createElement('div');
+        track.className = 'budget-track';
+        const fill = document.createElement('div');
+        fill.className = 'budget-fill' + (over ? ' over' : '');
+        fill.style.width = Math.min(100, (actual / budget) * 100) + '%';
+        track.appendChild(fill);
+        const state = document.createElement('span');
+        state.className = 'budget-state ' + (over ? 'over' : 'ok');
+        state.textContent = actual + ' / ' + budget + ' KB ' + (over ? '超预算' : '通过');
+        row.append(label, track, state);
+        rows.appendChild(row);
+      });
+      const summary = $('budgetSummary');
+      summary.textContent = overCount === 0
+        ? '全部通过：首屏资源体积在预算内，可进入 CI 门禁验证。'
+        : overCount + ' 项超预算：优先削减 JS 与首屏图片，必要时拆分路由与换 AVIF/WebP。';
+      summary.style.color = overCount === 0 ? 'var(--green)' : 'var(--red)';
+    }
+
+    ['bJs', 'bCss', 'bImg', 'bFont'].forEach((id) => $(id).addEventListener('input', updateBudget));
+
+    /* ============================================================
+       4. RUM 上报流程
+       ============================================================ */
+    function resetRum() {
+      clearTimers();
+      ['rum1', 'rum2', 'rum3', 'rum4'].forEach((id) => $(id).classList.remove('on'));
+      $('rumLog').textContent = '// 点击“模拟一次上报”查看链路日志';
+    }
+
+    function runRum() {
+      clearTimers();
+      ['rum1', 'rum2', 'rum3', 'rum4'].forEach((id) => $(id).classList.remove('on'));
+      const log = $('rumLog');
+      log.textContent = '';
+      later(() => {
+        $('rum1').classList.add('on');
+        log.textContent = '采集：LCP=1.9s · INP=180ms · CLS=0.05（route=/checkout）\n';
+      }, 0);
+      later(() => {
+        $('rum2').classList.add('on');
+        log.textContent += '聚合：按 route/device 分桶，计算 p75（非平均值）\n';
+      }, 420);
+      later(() => {
+        $('rum3').classList.add('on');
+        log.textContent += '上报：visibilitychange → hidden 时 sendBeacon("/rum", blob)\n';
+      }, 840);
+      later(() => {
+        $('rum4').classList.add('on');
+        log.textContent += '看板：p75 进入版本对比；LCP 恶化 >20% 触发告警';
+        toast('RUM 链路完成：数据已进入看板');
+      }, 1260);
+    }
+
+    $('btnRum').addEventListener('click', runRum);
+    $('btnRumReset').addEventListener('click', () => {
+      resetRum();
+      toast('RUM 流程已重置');
+    });
+
+    /* ============================================================
+       5. 故障排查决策树
+       ============================================================ */
+    const TRIAGE = {
+      white: {
+        label: '白屏',
+        nodes: [
+          { q: '影响范围：全部还是个别？', a: '全部 → 发布/CDN/DNS；个别 → SW/本地缓存/版本', detail: '先看白屏率与版本分布。全部用户优先回滚发布、purge CDN；个别用户让清缓存/换网络复测。' },
+          { q: 'HTML 与入口 chunk 是否 200？', a: 'HTML 200 → 查 JS；404/5xx → 发布或回源', detail: '抓 HAR 看 HTML、JS、CSS 状态码。chunk 404 常见于“旧 HTML + 新产物”的交叉窗口。' },
+          { q: '浏览器控制台有报错吗？', a: 'chunk 404 → 产物缺失；语法错误 → 版本兼容', detail: '若为 chunk 加载失败，保留上一版本产物并提示刷新；若为语法错误，检查构建目标与 polyfill。' }
+        ]
+      },
+      jank: {
+        label: '卡顿',
+        nodes: [
+          { q: '持续卡顿还是操作时卡？', a: '持续 → 内存/定时器；操作 → 长任务', detail: '持续卡顿优先查内存泄漏、无限循环、未清理的定时器；操作卡顿录 Performance 找长任务。' },
+          { q: '内存是否持续上涨？', a: '上涨 → 泄漏；平稳 → CPU 热点', detail: '内存快照对比三次，看 detached DOM、闭包引用、未解绑事件；平稳则看 CPU 剖面热点函数。' },
+          { q: '交互延迟是否 >200ms？', a: '是 → 拆任务/Worker；否 → 渲染掉帧', detail: '长任务拆分、移入 Worker、延迟非关键计算；掉帧则查布局抖动与合成层。' }
+        ]
+      },
+      slow: {
+        label: '慢加载',
+        nodes: [
+          { q: 'TTFB 慢还是下载/渲染慢？', a: 'TTFB → 服务端/CDN；下载 → 体积/网络', detail: 'TTFB 超过 800ms 先查回源、数据库、缓存命中率与 CDN 节点；下载慢看压缩、图片格式与请求瀑布。' },
+          { q: '是否有请求瀑布？', a: '是 → 依赖链；否 → 单资源过大', detail: 'JS 里再 fetch、CSS @import、串行模块都会形成阶梯瀑布；用 preload/并行请求打断依赖。' },
+          { q: 'LCP 资源是否被延迟发现？', a: '是 → preload/high；否 → 压缩与格式', detail: 'LCP 图不要 lazy，加 fetchpriority=high 与 preload；文本资源启用 Brotli，图片换 AVIF/WebP。' }
+        ]
+      }
+    };
+
+    let currentPath = 'white';
+
+    function renderTriage() {
+      const tree = $('triageTree');
+      tree.innerHTML = '';
+      TRIAGE[currentPath].nodes.forEach((node, index) => {
+        const div = document.createElement('div');
+        div.className = 'node';
+        const q = document.createElement('div');
+        q.className = 'q';
+        q.textContent = 'Q' + (index + 1) + ' · ' + node.q;
+        const a = document.createElement('div');
+        a.className = 'a';
+        a.textContent = node.a;
+        const arrow = document.createElement('div');
+        arrow.className = 'arrow';
+        arrow.textContent = index < 2 ? '点击查看下一步 →' : '点击查看止损建议 →';
+        div.append(q, a, arrow);
+        div.addEventListener('click', () => {
+          Array.from(tree.children).forEach((c) => c.classList.remove('on'));
+          div.classList.add('on');
+          showTriage(node);
+        });
+        tree.appendChild(div);
+      });
+      $('triageDetail').innerHTML = '<h4>' + TRIAGE[currentPath].label + '排查路径</h4><p>点击上方任一节点，查看下一步动作、常见根因与止损手段。</p>';
+    }
+
+    function showTriage(node) {
+      const box = $('triageDetail');
+      box.innerHTML = '';
+      const title = document.createElement('h4');
+      title.textContent = node.q;
+      const line = document.createElement('p');
+      line.textContent = node.detail;
+      const action = document.createElement('p');
+      action.style.marginTop = '4px';
+      action.style.color = 'var(--red)';
+      action.textContent = '止损优先：回滚 / 关实验开关 / purge CDN / 降级非关键功能，再保留现场定位。';
+      box.append(title, line, action);
+    }
+
+    $('triageTabs').addEventListener('click', (e) => {
+      const path = e.target.dataset.path;
+      if (!path || !TRIAGE[path]) return;
+      currentPath = path;
+      Array.from($('triageTabs').children).forEach((tab) => {
+        tab.classList.toggle('on', tab.dataset.path === path);
+      });
+      renderTriage();
+      toast('已切换到“' + TRIAGE[path].label + '”排查路径');
+    });
+
+    /* ============================================================
+       全局重置
+       ============================================================ */
+    function resetAll() {
+      clearTimers();
+      AUDITS.forEach((a) => { a.done = false; });
+      renderChecklist();
+      renderScore();
+      $('bJs').value = 210;
+      $('bCss').value = 48;
+      $('bImg').value = 420;
+      $('bFont').value = 90;
+      updateBudget();
+      resetRum();
+      $('flameDetail').innerHTML = '<h4>点击一个任务条</h4><p>长任务的阻塞时间 = 时长 − 50ms；所有长任务的阻塞时间之和就是 TBT。</p>';
+      Array.from($('flameSvg').querySelectorAll('rect')).forEach((r) => {
+        r.setAttribute('stroke', 'none');
+        r.setAttribute('stroke-width', 0);
+      });
+      currentPath = 'white';
+      Array.from($('triageTabs').children).forEach((tab) => {
+        tab.classList.toggle('on', tab.dataset.path === 'white');
+      });
+      renderTriage();
+      toast('已重置所有演示');
+    }
+
+    $('btnResetAll').addEventListener('click', resetAll);
+
+    /* ============================================================
+       首屏初始化
+       ============================================================ */
+    (function init() {
+      renderChecklist();
+      renderScore();
+      renderFlame();
+      updateBudget();
+      resetRum();
+      renderTriage();
+    })();
+  </script>
+</body>
+
+</html>

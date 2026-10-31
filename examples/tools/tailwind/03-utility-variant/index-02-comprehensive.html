@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tailwind v4 @utility @variant @source 综合 Playground</title>
+
+<style>
+  @import "tailwindcss";
+
+  /* ========== 自定义 @utility ========== */
+
+  /* 一个完整的按钮样式（演示如何在组件里用 @utility 代替自定义 class） */
+  @utility btn-base {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    font-weight: 500;
+    border-radius: 0.5rem;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+
+  @utility btn-sm { padding: 0.25rem 0.75rem; font-size: 0.875rem; }
+  @utility btn-md { padding: 0.5rem 1rem; font-size: 0.875rem; }
+  @utility btn-lg { padding: 0.75rem 1.5rem; font-size: 1rem; }
+
+  @utility btn-primary {
+    background-color: var(--color-blue-500);
+    color: white;
+  }
+  @utility btn-primary:hover { background-color: var(--color-blue-600); }
+
+  @utility btn-outline {
+    background-color: transparent;
+    border: 1px solid var(--color-slate-300);
+    color: var(--color-slate-700);
+  }
+  @utility btn-outline:hover { background-color: var(--color-slate-50); }
+
+  @utility btn-ghost {
+    background-color: transparent;
+    color: var(--color-slate-600);
+  }
+  @utility btn-ghost:hover { background-color: var(--color-slate-100); }
+
+  /* ========== 自定义 @variant ========== */
+
+  /* 选中状态变体 */
+  @variant selected {
+    &[aria-selected="true"];
+  }
+
+  /* 键盘焦点变体 */
+  @variant keyboard-focus {
+    &:focus-visible;
+  }
+
+  /* 触摸设备变体（pointer: coarse 代表没有精确光标） */
+  @variant touch {
+    @media (pointer: coarse);
+  }
+
+  /* 小屏变体（比 sm 还小的断点） */
+  @variant tiny {
+    @media (max-width: 479px);
+  }
+
+  body {
+    font-family: "Inter", "Noto Sans SC", system-ui, sans-serif;
+  }
+</style>
+</head>
+
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+  <div class="max-w-4xl mx-auto p-6">
+
+    <h1 class="text-2xl font-bold mb-1">🧪 Tailwind v4 扩展综合 Playground</h1>
+    <p class="text-slate-500 text-sm mb-8">
+      演示 <code class="bg-slate-100 px-1 rounded text-xs">@utility</code> 做组件、
+      <code class="bg-slate-100 px-1 rounded text-xs">@variant</code> 做前缀、
+      <code class="bg-slate-100 px-1 rounded text-xs">@source</code> 做扫描路径。
+    </p>
+
+    <!-- ========== 1. @utility 组件化 ========== -->
+    <section class="mb-10">
+      <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-blue-500"></span>
+        1. @utility 做按钮组件
+      </h2>
+
+      <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5 space-y-4">
+        <div>
+          <p class="text-xs text-slate-400 mb-2">Primary 按钮（不同尺寸）</p>
+          <div class="flex items-center gap-2 flex-wrap">
+            <button class="btn-base btn-sm btn-primary">btn-sm</button>
+            <button class="btn-base btn-md btn-primary">btn-md（默认）</button>
+            <button class="btn-base btn-lg btn-primary">btn-lg</button>
+          </div>
+        </div>
+
+        <div>
+          <p class="text-xs text-slate-400 mb-2">Outline / Ghost 变体</p>
+          <div class="flex items-center gap-2 flex-wrap">
+            <button class="btn-base btn-md btn-outline">btn-outline</button>
+            <button class="btn-base btn-md btn-ghost">btn-ghost</button>
+            <button class="btn-base btn-md btn-primary">btn-primary</button>
+          </div>
+        </div>
+
+        <div>
+          <p class="text-xs text-slate-400 mb-2">叠加响应式前缀</p>
+          <button class="btn-base
+                          btn-sm md:btn-md lg:btn-lg
+                          btn-primary">
+            响应式尺寸：移动 sm → md → lg
+          </button>
+        </div>
+      </div>
+
+      <pre class="text-xs bg-slate-100 p-3 rounded overflow-x-auto mt-3"><code><span class="cm">/* 每个 @utility 单独定义，组合使用 */</span>
+@utility btn-base { display: inline-flex; align-items: center; gap: 0.5rem; ... }
+@utility btn-sm   { padding: 0.25rem 0.75rem; font-size: 0.875rem; }
+@utility btn-md   { padding: 0.5rem 1rem;     font-size: 0.875rem; }
+@utility btn-lg   { padding: 0.75rem 1.5rem;  font-size: 1rem; }
+@utility btn-primary { background-color: blue; color: white; }
+<span class="cm">/* HTML 里像搭积木一样组合 */</span>
+<span class="cm">&lt;button class="btn-base btn-sm btn-primary"&gt;OK&lt;/button&gt;</span></code></pre>
+    </section>
+
+    <!-- ========== 2. @variant 自定义前缀 ========== -->
+    <section class="mb-10">
+      <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+        2. @variant 自定义前缀
+      </h2>
+
+      <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5 space-y-5">
+
+        <!-- selected 变体 -->
+        <div>
+          <p class="text-xs text-slate-400 mb-2">selected 变体（点按钮切换选中状态）</p>
+          <div class="flex gap-2">
+            <button class="px-3 py-2 rounded border border-slate-300
+                            selected:bg-blue-500 selected:text-white selected:border-blue-500"
+                    onclick="this.setAttribute('aria-selected', this.getAttribute('aria-selected') === 'true' ? 'false' : 'true')"
+                    aria-selected="false">
+              点我切换
+            </button>
+            <code class="text-xs bg-slate-100 px-2 py-1 rounded">
+              selected:bg-blue-500 selected:text-white
+            </code>
+          </div>
+        </div>
+
+        <!-- keyboard-focus 变体 -->
+        <div>
+          <p class="text-xs text-slate-400 mb-2">keyboard-focus 变体（按 Tab 观察）</p>
+          <button class="px-4 py-2 rounded bg-slate-100
+                          keyboard-focus:ring-2 keyboard-focus:ring-blue-500 keyboard-focus:outline-none
+                          hover:bg-slate-200">
+            Tab 到我看蓝色焦点环
+          </button>
+          <p class="text-xs text-slate-400 mt-2">
+            💡 用 <code class="bg-slate-100 px-1 rounded">focus-visible</code> 实现：
+            鼠标点击不显示焦点环，键盘 Tab 才显示
+          </p>
+        </div>
+
+        <!-- tiny 变体 -->
+        <div>
+          <p class="text-xs text-slate-400 mb-2">tiny 变体（≤479px 时才生效，比 sm 还小）</p>
+          <div class="bg-slate-100 rounded p-3 tiny:bg-rose-100 tiny:text-rose-700 transition-colors">
+            当前视口宽度：<span id="w">—</span>px
+            <span class="text-xs ml-2">≤479px 时背景变粉色</span>
+          </div>
+        </div>
+
+      </div>
+
+      <pre class="text-xs bg-slate-100 p-3 rounded overflow-x-auto mt-3"><code><span class="cm">/* selector 形式：匹配 aria-selected 属性 */</span>
+@variant selected { &amp;[aria-selected="true"]; }
+
+<span class="cm">/* selector 形式：键盘 focus */</span>
+@variant keyboard-focus { &amp;:focus-visible; }
+
+<span class="cm">/* @media 形式：小屏 */</span>
+@variant tiny { @media (max-width: 479px); }</code></pre>
+    </section>
+
+    <!-- ========== 3. @source ========== -->
+    <section class="mb-10">
+      <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+        3. @source —— 告诉 Tailwind 去哪里找类名
+      </h2>
+
+      <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
+        <p class="text-sm text-slate-700 mb-3">
+          v4 在 Vite/Next 里默认扫描 src 目录。但如果你有 Django 模板、Go views、或在 Play CDN 里引用外部文件，需要用 <code class="bg-slate-100 px-1 rounded text-xs">@source</code> 指定扫描路径。
+        </p>
+
+        <pre class="text-xs bg-slate-900 text-slate-100 p-3 rounded overflow-x-auto leading-relaxed"><code><span style="color:#c084fc">@import</span> <span style="color:#86efac">"tailwindcss"</span>;
+
+<span style="color:#c084fc">/* 扫描 Django 模板 */</span>
+<span style="color:#c084fc">@source</span> <span style="color:#86efac">"../../templates/**/*.html"</span>;
+
+<span style="color:#c084fc">/* 扫描 legacy 代码 */</span>
+<span style="color:#c084fc">@source</span> <span style="color:#86efac">"../legacy/**/*.{jinja,twig}"</span>;
+
+<span style="color:#c084fc">/* 排除 node_modules（默认已排除，显式写更清晰） */</span>
+<span style="color:#c084fc">@source</span> <span style="color:#86efac">"../**/*.html"</span> exclude <span style="color:#86efac">"../../../node_modules/**"</span>;
+
+<span style="color:#c084fc">@theme</span> {
+  --color-brand: #da373d;
+}
+
+<span style="color:#c084fc">@utility</span> text-shadow-sm { text-shadow: 0 1px 2px rgba(0,0,0,0.1); }</code></pre>
+
+        <p class="text-xs text-slate-500 mt-3">
+          💡 <code class="bg-slate-100 px-1 rounded">@source</code> 的路径是相对于<strong>当前 CSS 文件位置</strong>的。
+        </p>
+      </div>
+    </section>
+
+    <!-- ========== 4. 组合：@utility + @variant + 响应式 ========== -->
+    <section class="bg-gradient-to-br from-blue-50 to-fuchsia-50 rounded-lg p-5">
+      <h3 class="font-semibold mb-3">🎯 终极组合演示</h3>
+      <div class="flex items-center gap-3 flex-wrap">
+        <button class="
+          btn-base btn-md btn-primary
+          md:btn-lg                    <span class="text-slate-400 text-xs">/* 响应式尺寸 */</span>
+          hover:scale-105              <span class="text-slate-400 text-xs">/* 内置变体 */</span>
+          active:scale-95
+          dark:bg-blue-400             <span class="text-slate-400 text-xs">/* dark 变体 */</span>
+          selected:ring-2 selected:ring-blue-300
+          touch:min-h-[44px]           <span class="text-slate-400 text-xs">/* 自定义 touch 变体：触摸设备加大按钮 */</span>
+          rounded-xl                   <span class="text-slate-400 text-xs">/* 覆盖 btn-base 的默认圆角 */</span>
+        " onclick="this.setAttribute('aria-selected', this.getAttribute('aria-selected') === 'true' ? 'false' : 'true')">
+          点我 selected
+        </button>
+      </div>
+    </section>
+
+    <footer class="text-center text-xs text-slate-400 pt-6 pb-8">
+      Play CDN · @tailwindcss/browser@4.1.1 · @utility / @variant / @source 都支持 ✅
+      <br>注意：<code class="bg-slate-100 px-1 rounded">@plugin</code> Play CDN 不支持 ❌，需要 mini-project
+    </footer>
+
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.1"></script>
+<script>
+  const w = document.getElementById('w');
+  function update() { w.textContent = window.innerWidth; }
+  update();
+  window.addEventListener('resize', update);
+</script>
+</body>
+</html>

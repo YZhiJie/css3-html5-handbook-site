@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 01：Web Vitals 真实指标仪表盘
+  ------------------------------------------------------------
+  【知识点】
+    1. PerformanceObserver 采集 paint（FCP）、
+       largest-contentful-paint（LCP）、layout-shift（CLS）、
+       longtask（长任务）、event（交互延迟，INP 近似）
+    2. CLS 的会话窗口：相邻偏移 <1s 归入同一窗口，窗口最长
+       5s，且过滤 hadRecentInput（输入后 500ms 内的偏移不计）
+    3. TTFB 来自 navigation 条目的 responseStart（file:// 下
+       可能为 0，本例显示 N/A 并说明原因）
+    4. 阈值与评级：LCP 2.5s/4s、INP 200ms/500ms、
+       CLS 0.1/0.25、FCP 1.8s/3s、TTFB 800ms/1800ms
+    5. 自定义 performance.mark/measure 分段与时间线可视化
+    6. PerformanceObserver.supportedEntryTypes 能力检测
+    7. RUM 上报 payload 结构（web-vitals 字段风格 + 维度 +
+       采样率），仅页面内预览，不发送任何网络请求
+  【运行方式】
+    单文件、零网络、零 CDN、零外部图片/字体；双击 file://
+    即可运行。指标是当前页真实采集的（不是假数据）。
+  【效果说明】
+    顶部四张预算卡实时显示 FCP / TTFB / LCP / CLS；点击
+    “模拟长任务 / 模拟布局偏移 / 模拟慢交互”按钮，观察
+    指标与状态卡变化；下方依次是 PerformanceObserver 支持
+    情况、mark/measure 时间线、RUM payload 预览。
+  【注意事项】
+    1. LCP / CLS / longtask / event 条目主要是 Chromium 系
+       浏览器提供，其他浏览器显示“不支持”属预期；
+    2. 布局偏移必须发生在输入 500ms 之后才会被计入 CLS，
+       所以本例延迟 800ms 再插入横幅；
+    3. 模拟长任务与慢交互会短暂占用主线程（约 150~250ms），
+       属于演示行为，不会让页面不可恢复；
+    4. 所有反馈只用页面内状态卡 / 日志 / toast，无
+       alert/prompt/confirm；无外部请求。
+  ============================================================
+-->
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>示例 01 · Web Vitals 真实指标仪表盘</title>
+  <style>
+    :root {
+      --ink:#1f2a37; --muted:#667085; --line:#dbe3ec; --bg:#f3f6fa;
+      --card:#fff; --brand:#2563eb; --brand-soft:#e8efff;
+      --good:#15803d; --good-soft:#e7f6ec; --warn:#b45309; --warn-soft:#fff4df;
+      --poor:#b91c1c; --poor-soft:#fdeaea; --na:#64748b; --na-soft:#eef2f7;
+      --radius:12px;
+    }
+
+    * { box-sizing:border-box; margin:0; padding:0; }
+
+    body {
+      font-family:"PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+      background:radial-gradient(900px 400px at 80% -10%, #e3edff 0%, transparent 70%), var(--bg);
+      color:var(--ink); line-height:1.6; padding:22px 16px 60px;
+    }
+
+    .wrap { max-width:1080px; margin:0 auto; }
+    h1 { font-size:1.4rem; letter-spacing:.2px; }
+    h2 { font-size:1.02rem; margin-bottom:8px; }
+    h3 { font-size:.88rem; margin:12px 0 6px; }
+    .sub { color:var(--muted); font-size:.86rem; margin:6px 0 16px; }
+
+    section.card {
+      background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+      padding:16px 18px; margin-bottom:14px; box-shadow:0 1px 2px rgba(16,24,40,.04);
+    }
+
+    p, li, td, th { font-size:.85rem; }
+    ul { padding-left:18px; }
+    li { margin:3px 0; }
+
+    code {
+      background:#eef2f7; border-radius:4px; padding:0 5px;
+      font-family:"SF Mono",Consolas,monospace; font-size:.78rem;
+    }
+
+    .btn {
+      border:0; border-radius:9px; padding:9px 14px; font-size:.84rem; font-weight:600;
+      cursor:pointer; background:var(--brand); color:#fff; margin:4px 8px 4px 0;
+      transition:transform .12s ease, box-shadow .12s ease;
+    }
+    .btn:hover { box-shadow:0 6px 16px rgba(37,99,235,.25); }
+    .btn:active { transform:scale(.97); }
+    .btn.ghost { background:#eef2f8; color:var(--ink); border:1px solid var(--line); }
+    .btn.ghost:hover { box-shadow:none; background:#e5ebf3; }
+    .btn:focus-visible, a:focus-visible { outline:3px solid rgba(37,99,235,.35); outline-offset:2px; }
+
+    /* ---------- 预算卡 ---------- */
+    .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; margin-top:10px; }
+
+    .metric {
+      border:1px solid var(--line); border-radius:11px; padding:12px 13px;
+      background:#fbfcfe; border-top:4px solid var(--na);
+    }
+    .metric.good { border-top-color:var(--good); }
+    .metric.warn { border-top-color:var(--warn); }
+    .metric.poor { border-top-color:var(--poor); }
+
+    .metric .name {
+      display:flex; align-items:center; justify-content:space-between;
+      font-size:.82rem; color:var(--muted); font-weight:600; letter-spacing:.4px;
+    }
+    .metric .value {
+      font-size:1.7rem; font-weight:700; line-height:1.25;
+      font-variant-numeric:tabular-nums; margin:6px 0 2px;
+    }
+    .metric .value small { font-size:.8rem; font-weight:600; color:var(--muted); }
+
+    .badge {
+      font-size:.68rem; font-weight:700; border-radius:999px; padding:2px 9px;
+      background:var(--na-soft); color:var(--na); letter-spacing:.3px;
+    }
+    .badge.good { background:var(--good-soft); color:var(--good); }
+    .badge.warn { background:var(--warn-soft); color:var(--warn); }
+    .badge.poor { background:var(--poor-soft); color:var(--poor); }
+
+    .metric .thr { color:var(--muted); font-size:.74rem; margin-top:4px; }
+    .metric .note { font-size:.74rem; color:var(--muted); margin-top:6px; min-height:1.4em; }
+
+    /* ---------- 模拟区 ---------- */
+    .sim-row { display:flex; flex-wrap:wrap; gap:4px; }
+
+    .sim-status {
+      margin-top:12px; border:1px dashed var(--line); border-radius:10px;
+      background:#fbfcfe; padding:10px 12px; font-size:.82rem; min-height:54px;
+    }
+    .sim-status strong { color:var(--brand); }
+
+    /* 布局偏移沙盒 */
+    .shift-sandbox {
+      margin-top:10px; border:1px solid var(--line); border-radius:10px;
+      overflow:hidden; background:#fff;
+    }
+    #shiftHost { height:0; overflow:hidden; transition:height .18s ease; }
+    #shiftHost.on { height:92px; }
+    #shiftHost .banner {
+      height:92px; display:grid; place-items:center;
+      background:linear-gradient(120deg,#fde68a,#fca5a5);
+      font-size:.82rem; font-weight:600; color:#7c2d12;
+    }
+    .shift-body { padding:12px; font-size:.82rem; }
+    .shift-body .line { margin:4px 0; }
+    .shift-body .fake-line { height:10px; border-radius:999px; background:#edf1f6; margin:7px 0; }
+    .shift-body .fake-line:nth-child(2) { width:88%; }
+    .shift-body .fake-line:nth-child(3) { width:64%; }
+
+    /* ---------- 支持情况 ---------- */
+    .support-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:8px; margin-top:8px; }
+    .support-item {
+      display:flex; align-items:center; justify-content:space-between; gap:8px;
+      border:1px solid var(--line); border-radius:8px; padding:7px 10px;
+      background:#fbfcfe; font-family:"SF Mono",Consolas,monospace; font-size:.74rem;
+    }
+    .support-item .yes { color:var(--good); font-weight:700; }
+    .support-item .no { color:var(--poor); font-weight:700; }
+
+    /* ---------- 时间线 ---------- */
+    .timeline {
+      margin-top:10px; border:1px solid var(--line); border-radius:10px;
+      padding:10px 12px; background:#fbfcfe;
+    }
+    .tl-row {
+      display:grid; grid-template-columns:110px 1fr 70px; align-items:center;
+      gap:8px; margin:5px 0; font-size:.75rem;
+    }
+    .tl-name { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .tl-track { position:relative; height:12px; border-radius:999px; background:#eaeff6; overflow:hidden; }
+    .tl-bar {
+      position:absolute; top:0; height:100%; border-radius:999px;
+      background:linear-gradient(90deg,#60a5fa,#2563eb);
+    }
+    .tl-dur { text-align:right; font-variant-numeric:tabular-nums; color:var(--muted); }
+
+    /* ---------- 日志 ---------- */
+    .log {
+      background:#0f1724; color:#a7e8bd; border-radius:9px; padding:9px 11px;
+      font-family:"SF Mono",Consolas,monospace; font-size:.72rem; height:160px;
+      overflow:auto; white-space:pre-wrap; margin-top:8px;
+    }
+    .log .err { color:#fecaca; }
+    .log .hint { color:#fcd34d; }
+
+    /* ---------- payload ---------- */
+    pre.payload {
+      background:#0f1724; color:#cbd5e1; border-radius:9px; padding:10px 12px;
+      font-family:"SF Mono",Consolas,monospace; font-size:.71rem; line-height:1.55;
+      overflow:auto; max-height:340px; margin-top:8px;
+    }
+
+    .hint-note {
+      background:#fff8e6; border:1px solid #f1d596; color:#7a4a06;
+      border-radius:9px; padding:8px 11px; font-size:.79rem; margin-top:8px;
+    }
+
+    #toast {
+      position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(16px);
+      background:#0f1724; color:#fff; padding:9px 18px; border-radius:999px;
+      font-size:.83rem; opacity:0; pointer-events:none; max-width:88vw; z-index:20;
+      transition:opacity .2s ease, transform .2s ease;
+    }
+    #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+    @media (max-width: 620px) {
+      body { padding: 16px 10px 50px; }
+      section.card { padding: 13px 13px; }
+      .tl-row { grid-template-columns: 86px 1fr 58px; }
+      .metric .value { font-size: 1.45rem; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+
+    <header>
+      <h1>示例 01 · Web Vitals 真实指标仪表盘</h1>
+      <p class="sub">
+        当前页真实采集 <strong>FCP / TTFB / LCP / CLS</strong>（<code>PerformanceObserver</code>），
+        点击模拟按钮观察指标变化；页面内还提供支持度检测、<code>mark/measure</code> 时间线与 RUM payload 预览。
+      </p>
+    </header>
+
+    <!-- ============ 1. 预算卡 ============ -->
+    <section class="card">
+      <h2>① 指标预算卡（实时）</h2>
+      <p class="sub" style="margin-bottom:6px">
+        数值来自当前页面。评级标准：LCP 2.5s/4s、INP 200ms/500ms、CLS 0.1/0.25、FCP 1.8s/3s、TTFB 800ms/1800ms。
+      </p>
+      <div class="metrics" id="metrics">
+        <div class="metric" id="mFcp">
+          <div class="name"><span>FCP · 首次内容绘制</span><span class="badge" id="bFcp">等待</span></div>
+          <div class="value"><span id="vFcp">—</span><small> ms</small></div>
+          <div class="thr">良好 ≤ 1800ms · 差 &gt; 3000ms</div>
+          <div class="note" id="nFcp">页面首次画出文字或图片的时间</div>
+        </div>
+        <div class="metric" id="mTtfb">
+          <div class="name"><span>TTFB · 首字节</span><span class="badge" id="bTtfb">N/A</span></div>
+          <div class="value"><span id="vTtfb">—</span><small> ms</small></div>
+          <div class="thr">良好 ≤ 800ms · 差 &gt; 1800ms</div>
+          <div class="note" id="nTtfb">file:// 下 responseStart 可能为 0</div>
+        </div>
+        <div class="metric" id="mLcp">
+          <div class="name"><span>LCP · 最大内容绘制</span><span class="badge" id="bLcp">等待</span></div>
+          <div class="value"><span id="vLcp">—</span><small> ms</small></div>
+          <div class="thr">良好 ≤ 2500ms · 差 &gt; 4000ms</div>
+          <div class="note" id="nLcp">取最后一个 LCP 候选（最终值）</div>
+        </div>
+        <div class="metric" id="mCls">
+          <div class="name"><span>CLS · 累积布局偏移</span><span class="badge" id="bCls">等待</span></div>
+          <div class="value"><span id="vCls">0.000</span></div>
+          <div class="thr">良好 ≤ 0.1 · 差 &gt; 0.25</div>
+          <div class="note" id="nCls">已过滤输入后 500ms 内的偏移</div>
+        </div>
+      </div>
+      <div class="hint-note" id="inpNote">
+        INP（近似）：<strong id="vInp">暂无交互</strong>
+        — 通过 <code>event</code> 条目 + <code>interactionId</code> 统计本次页面内最大交互延迟；
+        仅 Chromium 系浏览器提供该条目。
+      </div>
+    </section>
+
+    <!-- ============ 2. 模拟 ============ -->
+    <section class="card">
+      <h2>② 模拟实验：指标会怎么变</h2>
+      <div class="sim-row">
+        <button class="btn" type="button" id="btnLong">模拟长任务（约 180ms）</button>
+        <button class="btn" type="button" id="btnShift">模拟布局偏移（延迟 800ms）</button>
+        <button class="btn" type="button" id="btnSlow">模拟慢交互（约 260ms）</button>
+        <button class="btn ghost" type="button" id="btnReset">一键重置</button>
+      </div>
+      <div class="sim-status" id="simStatus" aria-live="polite">
+        等待操作。建议先点“模拟长任务”观察长任务计数与近似 INP，再点“模拟布局偏移”观察 CLS。
+      </div>
+      <div class="shift-sandbox">
+        <div id="shiftHost">
+          <div class="banner">📢 这是一个迟到的促销横幅（高度 92px）</div>
+        </div>
+        <div class="shift-body">
+          <div class="line">下面这段正文原本在横幅的位置上方。</div>
+          <div class="fake-line"></div>
+          <div class="fake-line"></div>
+          <div class="line" id="shiftCaption">横幅插入后，这段文字会被整体推下去 → 产生布局偏移。</div>
+        </div>
+      </div>
+      <h3>采集日志</h3>
+      <div class="log" id="log" aria-live="polite"></div>
+    </section>
+
+    <!-- ============ 3. 支持度 ============ -->
+    <section class="card">
+      <h2>③ PerformanceObserver 支持情况</h2>
+      <p class="sub" style="margin-bottom:4px">
+        用 <code>PerformanceObserver.supportedEntryTypes</code> 检测当前浏览器：
+      </p>
+      <div class="support-grid" id="supportGrid"></div>
+      <p class="sub" style="margin-top:8px" id="supportNote"></p>
+    </section>
+
+    <!-- ============ 4. 自定义打点 ============ -->
+    <section class="card">
+      <h2>④ 自定义 <code>mark / measure</code> 时间线</h2>
+      <p class="sub" style="margin-bottom:6px">
+        模拟一次“导航 → HTML → CSS → JS → 首帧”的分段打点，并画出相对时间线。
+      </p>
+      <button class="btn" type="button" id="btnTimeline">记录一次分段打点</button>
+      <div class="timeline" id="timeline">
+        <p class="sub" style="margin:0">还没有打点数据，点击按钮生成。</p>
+      </div>
+    </section>
+
+    <!-- ============ 5. RUM payload ============ -->
+    <section class="card">
+      <h2>⑤ RUM 上报 payload 预览</h2>
+      <p class="sub" style="margin-bottom:6px">
+        真实项目会在 <code>visibilitychange</code> / <code>pagehide</code> 时用
+        <code>sendBeacon</code> 发送；本例<strong>只预览 JSON，不发起任何请求</strong>。
+      </p>
+      <button class="btn ghost" type="button" id="btnPayload">刷新 payload</button>
+      <pre class="payload" id="payload"></pre>
+    </section>
+
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      /* ============================================================
+         基础工具：日志 / toast / 状态
+         ============================================================ */
+      var logEl = document.getElementById('log');
+      var toastEl = document.getElementById('toast');
+      var toastTimer = null;
+
+      function toast(msg) {
+        toastEl.textContent = msg;
+        toastEl.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 2400);
+      }
+
+      function log(msg, cls) {
+        var t = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+        var line = document.createElement('div');
+        line.textContent = '[' + t + '] ' + msg;
+        if (cls) line.className = cls;
+        logEl.appendChild(line);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function setSimStatus(html) {
+        document.getElementById('simStatus').innerHTML = html;
+      }
+
+      /* ============================================================
+         采集状态
+         ============================================================ */
+      var state = {
+        fcp: null,
+        ttfb: null,
+        lcp: null,
+        lcpSize: 0,
+        shifts: [],          // { value, hadRecentInput, startTime }
+        events: [],          // { duration, startTime, name }
+        longTasks: [],       // { duration, startTime }
+        ignoreBefore: 0,     // 重置时忽略更早的条目
+        suppressShift: false,
+        longTaskFromSim: 0
+      };
+      var timers = [];
+      function later(fn, ms) {
+        var id = setTimeout(fn, ms);
+        timers.push(id);
+        return id;
+      }
+      function clearTimers() {
+        timers.forEach(function (id) { clearTimeout(id); });
+        timers = [];
+      }
+
+      var SUPPORTED = (window.PerformanceObserver &&
+        PerformanceObserver.supportedEntryTypes) || [];
+
+      function supports(type) {
+        return SUPPORTED.indexOf(type) !== -1;
+      }
+
+      /* ============================================================
+         1) FCP / TTFB
+         ============================================================ */
+      var nav = performance.getEntriesByType('navigation')[0];
+      if (nav && nav.responseStart > 0) {
+        state.ttfb = nav.responseStart;
+      }
+
+      if (supports('paint')) {
+        try {
+          new PerformanceObserver(function (list) {
+            list.getEntries().forEach(function (e) {
+              if (e.name === 'first-contentful-paint') {
+                state.fcp = e.startTime;
+                log('FCP 采集：' + Math.round(e.startTime) + 'ms');
+                updateAll();
+              }
+            });
+          }).observe({ type: 'paint', buffered: true });
+        } catch (err) {
+          log('paint 观察器创建失败：' + err.message, 'err');
+        }
+      } else {
+        log('当前浏览器不支持 paint 条目，FCP 显示 N/A', 'hint');
+      }
+
+      /* ============================================================
+         2) LCP
+         ============================================================ */
+      if (supports('largest-contentful-paint')) {
+        try {
+          new PerformanceObserver(function (list) {
+            var entries = list.getEntries();
+            var last = entries[entries.length - 1];
+            if (last) {
+              state.lcp = last.startTime;
+              state.lcpSize = last.size || 0;
+              updateAll();
+            }
+          }).observe({ type: 'largest-contentful-paint', buffered: true });
+        } catch (err) {
+          log('LCP 观察器创建失败：' + err.message, 'err');
+        }
+      }
+
+      /* ============================================================
+         3) CLS（会话窗口 + hadRecentInput）
+         ============================================================ */
+      function computeCls() {
+        var sessionValue = 0, sessionStart = -1, lastTs = 0, max = 0;
+        state.shifts.forEach(function (e) {
+          if (e.hadRecentInput) return;
+          if (e.startTime < state.ignoreBefore) return;
+          if (sessionValue === 0 || e.startTime - lastTs > 1000 ||
+            e.startTime - sessionStart > 5000) {
+            sessionStart = e.startTime;
+            sessionValue = 0;
+          }
+          sessionValue += e.value;
+          lastTs = e.startTime;
+          if (sessionValue > max) max = sessionValue;
+        });
+        return max;
+      }
+
+      if (supports('layout-shift')) {
+        try {
+          new PerformanceObserver(function (list) {
+            if (state.suppressShift) return; // 重置移除元素期间的偏移不计
+            list.getEntries().forEach(function (e) {
+              state.shifts.push({
+                value: e.value,
+                hadRecentInput: e.hadRecentInput,
+                startTime: e.startTime
+              });
+              if (!e.hadRecentInput) {
+                log('layout-shift：value=' + e.value.toFixed(3) +
+                  '，startTime=' + Math.round(e.startTime) + 'ms');
+              }
+            });
+            updateAll();
+          }).observe({ type: 'layout-shift', buffered: true });
+        } catch (err) {
+          log('layout-shift 观察器创建失败：' + err.message, 'err');
+        }
+      }
+
+      /* ============================================================
+         4) longtask
+         ============================================================ */
+      if (supports('longtask')) {
+        try {
+          new PerformanceObserver(function (list) {
+            list.getEntries().forEach(function (e) {
+              state.longTasks.push({ duration: e.duration, startTime: e.startTime });
+              log('longtask：' + Math.round(e.duration) + 'ms（超过 50ms 阻塞阈值）', 'hint');
+            });
+            updateAll();
+          }).observe({ type: 'longtask', buffered: true });
+        } catch (err) {
+          log('longtask 观察器创建失败：' + err.message, 'err');
+        }
+      }
+
+      /* ============================================================
+         5) event（INP 近似）
+         ============================================================ */
+      if (supports('event')) {
+        try {
+          new PerformanceObserver(function (list) {
+            list.getEntries().forEach(function (e) {
+              if (!e.interactionId) return; // 只保留真实交互
+              state.events.push({
+                duration: e.duration,
+                startTime: e.startTime,
+                name: e.name
+              });
+            });
+            updateAll();
+          }).observe({ type: 'event', buffered: true, durationThreshold: 16 });
+        } catch (err) {
+          log('event 观察器创建失败：' + err.message, 'err');
+        }
+      }
+
+      /* ============================================================
+         评级与渲染
+         ============================================================ */
+      var THRESHOLDS = {
+        FCP: { warn: 1800, error: 3000 },
+        TTFB: { warn: 800, error: 1800 },
+        LCP: { warn: 2500, error: 4000 },
+        CLS: { warn: 0.1, error: 0.25 },
+        INP: { warn: 200, error: 500 }
+      };
+
+      function rate(metric, value) {
+        if (value === null || value === undefined) return 'na';
+        var t = THRESHOLDS[metric];
+        if (value > t.error) return 'poor';
+        if (value > t.warn) return 'warn';
+        return 'good';
+      }
+
+      function label(status) {
+        if (status === 'good') return '良好';
+        if (status === 'warn') return '需改进';
+        if (status === 'poor') return '差';
+        return 'N/A';
+      }
+
+      function paintCard(metric, value, decimals, extraNote) {
+        var card = document.getElementById('m' + metric);
+        var badge = document.getElementById('b' + metric);
+        var valEl = document.getElementById('v' + metric);
+        var noteEl = document.getElementById('n' + metric);
+        var status = rate(metric, value);
+
+        card.className = 'metric ' + (status === 'na' ? '' : status);
+        badge.className = 'badge ' + (status === 'na' ? '' : status);
+        badge.textContent = label(status);
+
+        if (value === null || value === undefined) {
+          valEl.textContent = '—';
+          if (noteEl && extraNote) noteEl.textContent = extraNote;
+        } else {
+          valEl.textContent = value.toFixed(decimals);
+          if (noteEl && extraNote) noteEl.textContent = extraNote;
+        }
+      }
+
+      function currentInp() {
+        var max = 0;
+        state.events.forEach(function (e) {
+          if (e.startTime < state.ignoreBefore) return;
+          if (e.duration > max) max = e.duration;
+        });
+        return max || null;
+      }
+
+      function currentLongTaskCount() {
+        var n = 0;
+        state.longTasks.forEach(function (e) {
+          if (e.startTime >= state.ignoreBefore) n++;
+        });
+        return n;
+      }
+
+      function updateAll() {
+        var cls = computeCls();
+        paintCard('FCP', state.fcp, 0, state.fcp === null
+          ? '当前环境未提供 paint 条目'
+          : '首次画出文字/图片的时间');
+        paintCard('TTFB', state.ttfb, 0, state.ttfb === null
+          ? 'file:// 下 responseStart 为 0，无法测量'
+          : '来自 navigation 条目的 responseStart');
+        paintCard('LCP', state.lcp, 0, state.lcp === null
+          ? '当前环境未提供 LCP 条目'
+          : 'size=' + Math.round(state.lcpSize) + 'px²，取最终候选');
+        paintCard('CLS', cls, 3, '已过滤输入后 500ms 内的偏移');
+
+        var inp = currentInp();
+        var inpEl = document.getElementById('vInp');
+        if (inp === null) {
+          inpEl.textContent = '暂无交互';
+        } else {
+          inpEl.textContent = Math.round(inp) + 'ms（' + label(rate('INP', inp)) + '）';
+        }
+
+        renderPayload();
+      }
+
+      /* ============================================================
+         模拟行为
+         ============================================================ */
+      var btnLong = document.getElementById('btnLong');
+      var btnShift = document.getElementById('btnShift');
+      var btnSlow = document.getElementById('btnSlow');
+      var btnReset = document.getElementById('btnReset');
+      var shiftHost = document.getElementById('shiftHost');
+      var shiftBusy = false;
+
+      function busyWait(ms) {
+        var start = performance.now();
+        while (performance.now() - start < ms) {
+          // 故意占用主线程，制造长任务 / 慢交互
+        }
+      }
+
+      btnLong.addEventListener('click', function () {
+        setSimStatus('执行约 180ms 的同步计算……主线程会被占住，随后观察 longtask 与 INP。');
+        // 让状态先渲染一帧，再阻塞主线程
+        requestAnimationFrame(function () {
+          busyWait(180);
+          var count = currentLongTaskCount();
+          setSimStatus('<strong>长任务已完成</strong>：当前观测到 <strong>' +
+            count + '</strong> 个 longtask（>50ms）。' +
+            '近似 INP 也会因这次点击而升高（见下方 INP 行）。');
+          log('模拟长任务：同步占用约 180ms', 'hint');
+          toast('长任务已制造，观察 longtask 计数');
+        });
+      });
+
+      btnShift.addEventListener('click', function () {
+        if (shiftBusy || shiftHost.classList.contains('on')) {
+          toast('横幅已经在位，请先“一键重置”再模拟');
+          return;
+        }
+        if (!supports('layout-shift')) {
+          setSimStatus('当前浏览器不支持 layout-shift 条目，CLS 无法观测。');
+          toast('当前浏览器不支持 layout-shift');
+          return;
+        }
+        shiftBusy = true;
+        setSimStatus('横幅将在 <strong>800ms 后</strong>插入。' +
+          '注意：输入后 500ms 内的偏移会被 hadRecentInput 过滤，所以必须等过这个窗口。');
+        log('已安排：800ms 后插入 92px 横幅', 'hint');
+        later(function () {
+          shiftHost.classList.add('on');
+          var cls = computeCls();
+          setSimStatus('<strong>横幅已插入</strong>：正文被推下 92px，CLS 变为 <strong>' +
+            cls.toFixed(3) + '</strong>。' +
+            (cls > 0 ? '（这次偏移发生在输入 500ms 之后，已被计入）' : '（未被计入，请稍等片刻再试）'));
+          log('模拟布局偏移：插入 92px 横幅，当前 CLS=' + cls.toFixed(3));
+          toast('布局偏移已产生，观察 CLS 卡');
+          shiftBusy = false;
+        }, 800);
+      });
+
+      btnSlow.addEventListener('click', function () {
+        setSimStatus('点击处理中将同步占用约 260ms，模拟“慢交互”。');
+        requestAnimationFrame(function () {
+          busyWait(260);
+          setSimStatus('<strong>慢交互完成</strong>：这次点击的 event duration 约 260ms，' +
+            '近似 INP 应进入“需改进 / 差”区间（阈值 200ms / 500ms）。');
+          log('模拟慢交互：点击处理约 260ms', 'hint');
+          toast('慢交互已制造，观察 INP 行');
+          updateAll();
+        });
+      });
+
+      btnReset.addEventListener('click', function () {
+        clearTimers();
+        clearTimelineTimers();
+        shiftBusy = false;
+
+        // 移除横幅时抑制 layout-shift，避免“重置”本身又产生一次偏移
+        state.suppressShift = true;
+        shiftHost.classList.remove('on');
+        later(function () { state.suppressShift = false; }, 900);
+
+        state.ignoreBefore = performance.now();
+        state.longTaskFromSim = 0;
+        state.events = [];
+        state.shifts = [];
+        state.longTasks = [];
+
+        setSimStatus('已重置模拟状态。FCP / TTFB / LCP 是页面真实历史值，无法“重新开始”；' +
+          'CLS、近似 INP 与长任务计数从 0 重新累计。');
+        log('已重置：模拟元素移除，CLS / INP / longtask 重新累计');
+        toast('已重置（真实 FCP/TTFB/LCP 保留）');
+        updateAll();
+        renderTimelineEmpty();
+        renderPayload();
+      });
+
+      /* ============================================================
+         支持度表
+         ============================================================ */
+      var CHECK_TYPES = [
+        'navigation', 'paint', 'largest-contentful-paint', 'layout-shift',
+        'event', 'first-input', 'longtask', 'resource', 'mark', 'measure'
+      ];
+      var grid = document.getElementById('supportGrid');
+      CHECK_TYPES.forEach(function (type) {
+        var item = document.createElement('div');
+        item.className = 'support-item';
+        var name = document.createElement('span');
+        name.textContent = type;
+        var flag = document.createElement('span');
+        var ok = supports(type);
+        flag.className = ok ? 'yes' : 'no';
+        flag.textContent = ok ? '✓ 支持' : '✗ 不支持';
+        item.appendChild(name);
+        item.appendChild(flag);
+        grid.appendChild(item);
+      });
+      document.getElementById('supportNote').textContent =
+        '提示：LCP / CLS / longtask / event 主要由 Chromium 系浏览器提供；' +
+        'Safari / Firefox 缺少部分条目属于正常现象，报表端应标注“不可用”而不是上报 0。';
+
+      /* ============================================================
+         自定义 mark / measure 时间线
+         ============================================================ */
+      var timelineEl = document.getElementById('timeline');
+      var timelineTimers = [];
+
+      function renderTimelineEmpty() {
+        timelineEl.innerHTML = '<p class="sub" style="margin:0">还没有打点数据，点击按钮生成。</p>';
+      }
+
+      function clearTimelineTimers() {
+        timelineTimers.forEach(function (id) { clearTimeout(id); });
+        timelineTimers = [];
+      }
+
+      document.getElementById('btnTimeline').addEventListener('click', function () {
+        clearTimelineTimers();
+        ['demo:nav', 'demo:html', 'demo:css', 'demo:js', 'demo:first-frame',
+          'demo:boot'].forEach(function (name) {
+          performance.clearMarks(name);
+        });
+        ['demo:html', 'demo:css', 'demo:js', 'demo:frame'].forEach(function (name) {
+          performance.clearMeasures(name);
+        });
+
+        var t0;
+        try {
+          performance.mark('demo:nav');
+          t0 = performance.now();
+        } catch (err) {
+          timelineEl.textContent = '当前环境不支持 performance.mark';
+          return;
+        }
+
+        function stage(delay, markName, measureName, prevMark, extra) {
+          timelineTimers.push(setTimeout(function () {
+            performance.mark(markName);
+            if (prevMark) {
+              performance.measure(measureName, prevMark, markName);
+            }
+            renderTimeline();
+            log('mark ' + markName + '（+' + (extra || delay) + 'ms 模拟）');
+          }, delay));
+        }
+
+        timelineEl.innerHTML = '<p class="sub" style="margin:0">打点进行中……</p>';
+        stage(0, 'demo:html', 'demo:html', 'demo:nav', 0);
+        stage(120, 'demo:css', 'demo:css', 'demo:html', 120);
+        stage(230, 'demo:js', 'demo:js', 'demo:css', 110);
+        stage(330, 'demo:first-frame', 'demo:frame', 'demo:js', 100);
+
+        timelineTimers.push(setTimeout(function () {
+          performance.mark('demo:boot');
+          performance.measure('demo:total', 'demo:nav', 'demo:boot');
+          renderTimeline();
+          toast('打点完成，时间线已更新');
+        }, 335));
+      });
+
+      function renderTimeline() {
+        var measures = performance.getEntriesByType('measure')
+          .filter(function (m) { return m.name.indexOf('demo:') === 0; });
+        if (!measures.length) { renderTimelineEmpty(); return; }
+
+        var total = 0;
+        measures.forEach(function (m) {
+          total = Math.max(total, m.startTime + m.duration);
+        });
+        var startBase = performance.getEntriesByName('demo:nav')[0];
+        var base = startBase ? startBase.startTime : 0;
+        total = Math.max(total - base, 1);
+
+        var html = '';
+        measures.forEach(function (m) {
+          var left = ((m.startTime - base) / total) * 100;
+          var width = Math.max((m.duration / total) * 100, 2);
+          html += '<div class="tl-row">' +
+            '<span class="tl-name" title="' + m.name + '">' + m.name + '</span>' +
+            '<div class="tl-track"><div class="tl-bar" style="left:' +
+            left.toFixed(2) + '%;width:' + width.toFixed(2) + '%"></div></div>' +
+            '<span class="tl-dur">' + Math.round(m.duration) + 'ms</span>' +
+            '</div>';
+        });
+        var marks = performance.getEntriesByType('mark')
+          .filter(function (m) { return m.name.indexOf('demo:') === 0; })
+          .map(function (m) {
+            return m.name.replace('demo:', '') + ' @' + Math.round(m.startTime - base) + 'ms';
+          });
+        html += '<p class="sub" style="margin:10px 0 0">打点：' + marks.join(' → ') + '</p>';
+        timelineEl.innerHTML = html;
+      }
+
+      /* ============================================================
+         RUM payload 预览
+         ============================================================ */
+      var sessionId = 'demo-' + Math.random().toString(36).slice(2, 8);
+
+      function buildPayload() {
+        return {
+          page: location.pathname || 'file://',
+          release: 'perf-demo-2026.10',
+          sid: sessionId,
+          ts: Date.now(),
+          sampling: 0.1,
+          dims: {
+            device: matchMedia('(max-width: 768px)').matches ? 'mobile' : 'desktop',
+            conn: (navigator.connection && navigator.connection.effectiveType) || 'unknown',
+            navigationType: nav ? nav.type : 'navigate',
+            observerSupported: supports('layout-shift') && supports('event')
+          },
+          vitals: {
+            FCP: state.fcp === null ? null : Math.round(state.fcp),
+            TTFB: state.ttfb === null ? null : Math.round(state.ttfb),
+            LCP: state.lcp === null ? null : Math.round(state.lcp),
+            CLS: Number(computeCls().toFixed(4)),
+            INP_approx: currentInp() === null ? null : Math.round(currentInp()),
+            longtasks: currentLongTaskCount()
+          }
+        };
+      }
+
+      function renderPayload() {
+        document.getElementById('payload').textContent =
+          JSON.stringify(buildPayload(), null, 2);
+      }
+
+      document.getElementById('btnPayload').addEventListener('click', function () {
+        renderPayload();
+        toast('payload 已刷新（仅预览，未发送）');
+      });
+
+      /* ============================================================
+         初始化
+         ============================================================ */
+      log('页面启动：开始采集真实指标');
+      updateAll();
+
+      // 页面隐藏时提示“真实项目此刻才上报最终值”
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') {
+          log('visibilitychange → hidden：真实项目应在此刻用 sendBeacon 上报最终值', 'hint');
+        }
+      });
+
+      window.addEventListener('error', function (e) {
+        log('全局 error：' + e.message, 'err');
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        log('unhandledrejection：' + String(e.reason), 'err');
+      });
+    })();
+  </script>
+</body>
+
+</html>

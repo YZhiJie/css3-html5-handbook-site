@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>tailwind-merge 冲突对照 Playground</title>
+
+<style>
+  /* ============ Tailwind v4 Play CDN ============ */
+  @import "tailwindcss";
+
+  @theme {
+    --color-play-zone: #da373d;
+  }
+
+  /* ============ 页面样式 ============ */
+  body {
+    font-family: "Inter", "Noto Sans SC", system-ui, sans-serif;
+  }
+
+  .demo-box {
+    transition: all 0.2s ease;
+  }
+
+  /* 结果对比高亮 */
+  .result-diff {
+    background: #fef9c3;     /* 黄色高亮：clsx 和 twMerge 结果不同 */
+    border-left: 3px solid #eab308;
+    padding: 8px 12px;
+    border-radius: 0 8px 8px 0;
+  }
+  .result-same {
+    background: #dcfce7;     /* 绿色：两者结果相同 */
+    border-left: 3px solid #22c55e;
+    padding: 8px 12px;
+    border-radius: 0 8px 8px 0;
+  }
+
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  .preset-btn {
+    @apply text-left px-3 py-2 rounded-md border border-slate-200
+           hover:bg-slate-50 transition-colors cursor-pointer;
+  }
+</style>
+</head>
+
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+  <div class="max-w-4xl mx-auto p-6">
+
+    <h1 class="text-2xl font-bold mb-1">🔀 tailwind-merge 冲突对照 Playground</h1>
+    <p class="text-slate-500 text-sm mb-8">
+      输入两个或多个 Tailwind 类，看看 <code class="bg-slate-100 px-1 rounded">clsx</code>（纯拼接）和
+      <code class="bg-slate-100 px-1 rounded">twMerge</code>（智能合并）的区别。
+    </p>
+
+    <!-- ============ 输入区 ============ -->
+    <section class="mb-8">
+      <h2 class="text-lg font-semibold mb-3">🎯 试试你自己的输入</h2>
+      <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5 space-y-3">
+        <div>
+          <label class="text-xs text-slate-500 mb-1 block">第一个类 / 字符串</label>
+          <input id="input-a" type="text" value="p-4"
+                 class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm font-mono
+                        focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div>
+          <label class="text-xs text-slate-500 mb-1 block">第二个类 / 字符串</label>
+          <input id="input-b" type="text" value="p-6"
+                 class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm font-mono
+                        focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div>
+          <label class="text-xs text-slate-500 mb-1 block">第三个（可选）</label>
+          <input id="input-c" type="text" value="" placeholder="可留空"
+                 class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm font-mono
+                        focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 结果对比区 ============ -->
+    <section class="mb-8">
+      <h2 class="text-lg font-semibold mb-3">📊 结果对比</h2>
+      <div class="grid gap-4 md:grid-cols-2">
+
+        <!-- clsx 结果 -->
+        <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+          <div class="bg-slate-100 px-4 py-2 border-b border-slate-200">
+            <code class="text-sm font-semibold text-slate-700">clsx(…)</code>
+            <span class="text-xs text-slate-500 ml-2">纯拼接，不知道冲突</span>
+          </div>
+          <div id="clsx-result" class="p-4 font-mono text-sm text-slate-700 break-all"></div>
+        </div>
+
+        <!-- twMerge 结果 -->
+        <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+          <div class="bg-blue-50 px-4 py-2 border-b border-blue-200">
+            <code class="text-sm font-semibold text-blue-700">twMerge(…)</code>
+            <span class="text-xs text-blue-500 ml-2">智能合并冲突</span>
+          </div>
+          <div id="twmerge-result" class="p-4 font-mono text-sm text-slate-700 break-all"></div>
+        </div>
+
+      </div>
+
+      <!-- 是否相同 -->
+      <div id="diff-indicator" class="mt-3"></div>
+    </section>
+
+    <!-- ============ 视觉预览 ============ -->
+    <section class="mb-8">
+      <h2 class="text-lg font-semibold mb-3">👁️ 视觉预览</h2>
+      <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
+        <p class="text-xs text-slate-500 mb-3">以下是应用 twMerge 结果后的元素（灰色容器让你看到 padding）：</p>
+        <div class="bg-slate-200 rounded-lg p-4">
+          <div id="visual-demo"
+               class="demo-box bg-white border border-slate-300 rounded-md text-slate-600 text-sm">
+            应用类名后的元素
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 预设场景 ============ -->
+    <section class="mb-8">
+      <h2 class="text-lg font-semibold mb-3">⚡ 预设冲突场景</h2>
+      <div class="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+
+        <button class="preset-btn"
+                data-a="p-4" data-b="p-6">
+          <code class="text-xs text-red-500">p-4 + p-6</code>
+          <div class="text-xs text-slate-500 mt-1">padding 重复 → 后者赢</div>
+        </button>
+
+        <button class="preset-btn"
+                data-a="px-4 py-2" data-b="p-8">
+          <code class="text-xs text-red-500">px-4 py-2 + p-8</code>
+          <div class="text-xs text-slate-500 mt-1">综合覆盖分向</div>
+        </button>
+
+        <button class="preset-btn"
+                data-a="bg-blue-500" data-b="bg-red-500">
+          <code class="text-xs text-red-500">bg-blue-500 + bg-red-500</code>
+          <div class="text-xs text-slate-500 mt-1">背景色冲突</div>
+        </button>
+
+        <button class="preset-btn"
+                data-a="flex-1" data-b="flex-initial">
+          <code class="text-xs text-red-500">flex-1 + flex-initial</code>
+          <div class="text-xs text-slate-500 mt-1">flex 系列冲突</div>
+        </button>
+
+        <button class="preset-btn"
+                data-a="rounded-md" data-b="rounded-full">
+          <code class="text-xs text-red-500">rounded-md + rounded-full</code>
+          <div class="text-xs text-slate-500 mt-1">圆角冲突</div>
+        </button>
+
+        <button class="preset-btn"
+                data-a="bg-blue-500 hover:bg-blue-600" data-b="bg-red-500 hover:bg-red-600">
+          <code class="text-xs text-red-500">blue 默认 + red 覆盖</code>
+          <div class="text-xs text-slate-500 mt-1">hover 也要合并</div>
+        </button>
+
+        <button class="preset-btn"
+                data-a="md:p-4" data-b="md:p-8">
+          <code class="text-xs text-red-500">md:p-4 + md:p-8</code>
+          <div class="text-xs text-slate-500 mt-1">响应式前缀相同 → 冲突</div>
+        </button>
+
+        <button class="preset-btn"
+                data-a="bg-blue-500" data-b="hover:bg-red-500">
+          <code class="text-xs text-green-500">bg-blue-500 + hover:bg-red-500</code>
+          <div class="text-xs text-slate-500 mt-1">前缀不同 → 不冲突</div>
+        </button>
+
+        <button class="preset-btn"
+                data-a="hidden md:block lg:flex" data-b="md:hidden">
+          <code class="text-xs text-red-500">hidden + md:hidden</code>
+          <div class="text-xs text-slate-500 mt-1">相同响应式 display 冲突</div>
+        </button>
+
+      </div>
+    </section>
+
+    <!-- ============ 核心发现 ============ -->
+    <section class="bg-blue-50 rounded-lg border border-blue-200 p-5">
+      <h3 class="font-semibold text-blue-800 mb-2">💡 tailwind-merge 的冲突检测规则</h3>
+      <ul class="text-sm text-blue-700 space-y-1">
+        <li>✅ 相同 CSS 属性的工具类 → 后者赢</li>
+        <li>✅ 同一工具类族（flex-* / rounded-* / bg-*）→ 后者赢</li>
+        <li>✅ 综合属性覆盖分向属性（p-8 覆盖 px-4 py-2）</li>
+        <li>✅ 只有 <strong>前缀相同</strong> 的才会互相冲突（hover:bg-* vs bg-* 不冲突）</li>
+        <li>❌ clsx 完全不做冲突检测，只拼接</li>
+      </ul>
+    </section>
+
+    <footer class="text-center text-xs text-slate-400 mt-6 pb-8">
+      Tailwind v4.1.1 Play CDN + tailwind-merge 3.x（esm.sh CDN）
+    </footer>
+
+  </div>
+
+<!-- ============ Tailwind v4 浏览器端引擎 ============ -->
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.1"></script>
+
+<!-- ============ tailwind-merge（用 esm.sh CDN 引入） ============ -->
+<script type="module">
+  import { twMerge } from "https://esm.sh/tailwind-merge@3.0.0";
+  import { clsx } from "https://esm.sh/clsx@2.1.1";
+
+  // 挂到 window 上方便调试
+  window.twMerge = twMerge;
+  window.clsx = clsx;
+
+  // 工具：把输入字符串拆分 trim
+  function splitInput(str) {
+    return str.trim().split(/\s+/).filter(Boolean);
+  }
+
+  function compute() {
+    const a = document.getElementById("input-a").value;
+    const b = document.getElementById("input-b").value;
+    const c = document.getElementById("input-c").value;
+
+    // clsx 拼接
+    const clsxResult = clsx(
+      splitInput(a),
+      splitInput(b),
+      splitInput(c),
+    );
+
+    // twMerge 合并
+    const twMergeResult = twMerge(
+      ...splitInput(a),
+      ...splitInput(b),
+      ...splitInput(c),
+    );
+
+    document.getElementById("clsx-result").textContent = clsxResult || "(空)";
+    document.getElementById("twmerge-result").textContent = twMergeResult || "(空)";
+
+    // 差异高亮
+    const diff = document.getElementById("diff-indicator");
+    if (clsxResult === twMergeResult) {
+      diff.innerHTML = '<div class="result-same text-sm">✅ clsx 和 twMerge 结果相同（没有冲突）</div>';
+    } else {
+      diff.innerHTML = '<div class="result-diff text-sm">⚠️ clsx 有多余的冲突类，twMerge 正确合并了</div>';
+    }
+
+    // 视觉预览（用 twMerge 结果）
+    const visual = document.getElementById("visual-demo");
+    visual.className = "demo-box " + (twMergeResult || "p-4 bg-white border border-slate-300");
+    visual.textContent = "应用后：" + (twMergeResult || "(空)");
+  }
+
+  // 监听输入变化
+  ["input-a", "input-b", "input-c"].forEach(id => {
+    document.getElementById(id).addEventListener("input", compute);
+  });
+
+  // 预设按钮
+  document.querySelectorAll(".preset-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.getElementById("input-a").value = btn.dataset.a;
+      document.getElementById("input-b").value = btn.dataset.b;
+      document.getElementById("input-c").value = "";
+      compute();
+    });
+  });
+
+  // 初次计算
+  compute();
+</script>
+
+</body>
+</html>

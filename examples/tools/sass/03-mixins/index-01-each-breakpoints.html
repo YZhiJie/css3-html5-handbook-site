@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>@each 生成断点工具类 —— Dart Sass 浏览器端编译</title>
+
+  <!-- Dart Sass standalone 版 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/sass@1.85.0/sass.standalone.js"></script>
+
+  <style>
+    /* 页面基础样式 */
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+      background: #f4f6fa;
+      color: #222;
+    }
+    .page {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 32px 24px 64px;
+    }
+    h1 { font-size: 26px; margin: 0 0 8px; }
+    .lead { color: #666; margin-bottom: 24px; font-size: 14px; line-height: 1.6; }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+      margin-bottom: 20px;
+    }
+    .card h2 { margin: 0 0 4px; font-size: 17px; }
+    .card p.desc { margin: 0 0 14px; color: #555; font-size: 13px; line-height: 1.6; }
+
+    code-block {
+      display: block;
+      background: #1e293b;
+      color: #e2e8f0;
+      font-family: "JetBrains Mono", "Menlo", monospace;
+      font-size: 12px;
+      line-height: 1.65;
+      border-radius: 10px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      margin-bottom: 14px;
+      white-space: pre;
+    }
+
+    .section-label {
+      font-size: 11px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 6px;
+    }
+
+    /* 手动写的 CSS（用原生 CSS 做容器 + 展示框） */
+    .viewport-bar {
+      background: #e2e8f0;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      color: #475569;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .viewport-bar input[type="range"] { flex: 1; min-width: 150px; }
+    .preview {
+      border: 2px dashed #cbd5e1;
+      border-radius: 10px;
+      padding: 16px;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>🧱 @each / @for 生成断点工具类</h1>
+    <p class="lead">
+      下面所有断点工具类（<code>.d-none-sm</code>、<code>.d-block-md</code>、<code>.grid-cols-2-lg</code> 等）
+      都是用 <code>@each</code> 遍历一个 Sass map **一行生成**的。拖动下方的 viewport 滑块，
+      就能看到响应式工具类生效——这就是 Sass 批量生成能力的威力。
+    </p>
+
+    <div class="card">
+      <h2>SCSS 源码（@each 遍历断点 map）</h2>
+      <p class="desc">
+        定义一个 <code>$breakpoints</code> map，然后 <code>@each $name, $px in $breakpoints</code>
+        一次性生成 4 组 × 每组 N 个工具类。下面就是这个循环的完整源码和编译产物。
+      </p>
+
+      <div class="section-label">SCSS</div>
+      <code-block id="scss-source">（加载中）</code-block>
+
+      <div class="section-label">编译后的 CSS（展开全部 @media 规则）</div>
+      <code-block id="css-output">（编译中……）</code-block>
+
+      <div class="section-label">实时预览：拖动滑块改变视口宽度</div>
+      <div class="viewport-bar">
+        <span>模拟视口宽度</span>
+        <input type="range" id="vp-range" min="320" max="1440" value="1200" />
+        <span id="vp-label">1200px</span>
+        <span id="active-bp" style="margin-left:auto;color:#059669;">→ 当前断点：xl</span>
+      </div>
+
+      <!-- 视口模拟容器（固定宽度，模拟真实 viewport） -->
+      <div class="preview" id="vp-preview">
+        <!-- Demo 1：显示/隐藏 -->
+        <div style="background:#dbeafe;border-radius:8px;padding:12px;margin-bottom:12px;">
+          <strong>响应式显示/隐藏工具类（d-none-* / d-block-*）</strong>
+          <p style="margin:6px 0 0;font-size:13px;color:#475569;">
+            当视口 ≥ md (768px) 时，蓝色块里的手机标签会隐藏；
+            视口 &lt; md 时，桌面标签会隐藏。
+          </p>
+          <div class="hidden-md" style="background:#fff;padding:8px;border-radius:4px;margin-top:8px;">
+            📱 我只在 md 以下可见（类名 <code>.hidden-md</code>）
+          </div>
+          <div class="hidden-sm-down" style="background:#fff;padding:8px;border-radius:4px;margin-top:8px;">
+            🖥️ 我只在 md 以上可见（类名 <code>.hidden-sm-down</code>）
+          </div>
+        </div>
+
+        <!-- Demo 2：栅格响应式 -->
+        <div class="grid-2-md" style="display:grid;gap:10px;">
+          <div style="background:#fef3c7;border-radius:6px;padding:14px;">
+            <strong>响应式栅格（grid-2-md）</strong>
+            <p style="margin:4px 0 0;font-size:12px;color:#92400e;">
+              ≥ md（768px）时两列布局；窄屏时单列堆叠。
+            </p>
+          </div>
+          <div style="background:#dcfce7;border-radius:6px;padding:14px;">
+            <strong>响应式栅格（grid-2-md）</strong>
+            <p style="margin:4px 0 0;font-size:12px;color:#166534;">
+              ≥ md（768px）时两列布局；窄屏时单列堆叠。
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <!--  SCSS 源码：由 JS 读取并编译后注入 DOM                          -->
+  <!-- ============================================================= -->
+  <script type="text/sass" id="demo-scss">
+@use 'sass:math';
+
+// ──────────────────────────────────────
+// 1. 断点 map（单一数据源）
+// ──────────────────────────────────────
+$breakpoints: (
+  'sm': 576px,
+  'md': 768px,
+  'lg': 1024px,
+  'xl': 1280px,
+);
+
+// 生成 @media (min-width: $px) 的工具类
+// 含义：视口 ≥ 该断点时生效
+@each $name, $px in $breakpoints {
+  @media (min-width: #{$px}) {
+    // 显示工具类
+    .d-block-#{$name} { display: block !important; }
+    .d-flex-#{$name}  { display: flex !important; }
+    .d-grid-#{$name}  { display: grid !important; }
+    // 隐藏工具类
+    .d-none-#{$name}  { display: none !important; }
+    .hidden-#{$name}  { display: none !important; }   // 同义别名
+    .hidden-#{$name}-down { display: none !important; }
+  }
+}
+
+// 反向下坡：视口 < 断点时隐藏（hidden-sm-down 表示小于 sm 才隐藏）
+@each $name, $px in $breakpoints {
+  @media (max-width: #{math.div($px - 1px, 1)}) {
+    .hidden-#{$name}-down { display: none !important; }
+  }
+}
+
+// ──────────────────────────────────────
+// 2. 栅格工具类（grid-cols-*）
+//    用 @each + @for 嵌套：每个断点生成 1~6 列
+// ──────────────────────────────────────
+@each $name, $px in $breakpoints {
+  @media (min-width: #{$px}) {
+    @for $cols from 1 through 6 {
+      .grid-#{$cols}-#{$name} {
+        display: grid;
+        grid-template-columns: repeat(#{$cols}, 1fr);
+        gap: 12px;
+      }
+    }
+  }
+}
+
+// 便捷别名：grid-2-md → 两列 @ md
+@each $name, $px in $breakpoints {
+  @media (min-width: #{$px}) {
+    .grid-2-#{$name} { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .grid-3-#{$name} { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  }
+}
+
+// ──────────────────────────────────────
+// 3. 偏移工具类（用 @for 直接生成）
+// ──────────────────────────────────────
+@for $i from 1 through 12 {
+  .col-span-#{$i} { grid-column: span #{$i}; }
+}
+
+// ──────────────────────────────────────
+// 4. 颜色 token + @each 生成语义色
+// ──────────────────────────────────────
+$colors: (
+  'primary':   #3b82f6,
+  'success':   #10b981,
+  'danger':    #ef4444,
+  'warning':   #f59e0b,
+  'neutral':   #6b7280,
+);
+
+@each $name, $hex in $colors {
+  .bg-#{$name}   { background: $hex; }
+  .text-#{$name} { color: $hex; }
+  .border-#{$name} { border-color: $hex; }
+}
+  </script>
+
+  <script>
+    (async () => {
+      const source = document.getElementById('demo-scss').textContent.trim();
+      document.getElementById('scss-source').textContent = source;
+
+      try {
+        const { css } = await globalThis.sass.compileStringAsync(source, {
+          style: 'expanded',
+        });
+        document.getElementById('css-output').textContent = css.trim();
+      } catch (err) {
+        document.getElementById('css-output').textContent = '❌ 编译失败：\n' + err.message;
+      }
+    })();
+
+    // 视口模拟逻辑：把 .preview 容器宽度设成模拟值，
+    // 但 CSS 里的 @media 是真实 viewport——所以我们用 JS 动态计算当前断点，
+    // 并在页面上标记当前命中断点
+    function updateViewport() {
+      const v = parseInt(document.getElementById('vp-range').value, 10);
+      document.getElementById('vp-label').textContent = v + 'px';
+
+      // 根据 CSS media query 逻辑判断当前断点
+      let bp = 'xs';
+      if (v >= 1280) bp = 'xl';
+      else if (v >= 1024) bp = 'lg';
+      else if (v >= 768) bp = 'md';
+      else if (v >= 576) bp = 'sm';
+      document.getElementById('active-bp').textContent = '→ 当前断点：' + bp;
+      document.getElementById('vp-preview').style.width = v + 'px';
+      document.getElementById('vp-preview').style.margin = '0 auto';
+    }
+    document.getElementById('vp-range').addEventListener('input', updateViewport);
+    updateViewport();
+  </script>
+</body>
+</html>

@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 04：主线程长任务实验室
+  ------------------------------------------------------------
+  【知识点】
+    1. 事件循环与帧预算：一个 task 必须整体跑完，长任务会卡住输入与渲染
+    2. 长任务阈值 50ms 与 PerformanceObserver('longtask') 实测日志
+    3. 同步大块 vs 任务切片：优先 scheduler.yield，回退 MessageChannel，
+       每若干片再用 requestAnimationFrame 保证画面更新
+    4. 可中断任务：Abort 标志 + 运行令牌，停止/重置随时生效
+    5. 布局抖动：循环里"读 offsetHeight → 写 height" vs 批量读写分离
+    6. 虚拟列表：1000 行只渲染可视区窗口
+    7. INP 三段（输入延迟 / 处理时间 / 呈现延迟）：Event Timing 实测
+    8. 点击响应计数器：在任务运行期间点击，直接观察事件处理延迟
+  【运行方式】
+    纯单文件、零网络零 CDN，双击 file:// 即可打开。
+  【效果说明】
+    区块 ①：点「同步大块」或「任务切片」跑同样的 1200ms CPU 工作量。
+      大块版每约 120ms 才让出一次，进度条跳变、点击延迟明显；切片版
+      每约 4ms 让出一次，进度平滑、点击即时。日志区会记录 >50ms 的长任务。
+    区块 ②：同一批 120 个盒子，对比"读写交替"与"批量读写"的耗时。
+    区块 ③：1000 行数据，只渲染可视区，滚动查看已渲染节点数始终很小。
+    区块 ④：点击测量区，Event Timing 拆出 INP 的三段耗时；勾选"回调里
+      加 200ms 计算"可专门制造处理时间。
+  【注意事项】
+    1. 同步大块仍是"可中断"的：每块约 120ms 结束后检查停止标志，最坏
+       约 120ms 内响应停止/重置；不会无限运行，不存在页面锁死。
+    2. longtask / Event Timing 以 Chrome / Edge 为主；其他浏览器会显示
+       "不支持"，并回退到"点击时间戳 → 下一帧"的近似测量。
+    3. 工作量按时间切片而不是固定条数，避免不同设备性能差异导致演示失真。
+    4. 所有实验都有限次、可复位，不会叠加任务；没有 alert/prompt/confirm。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 04 · 主线程长任务实验室</title>
+<style>
+  :root {
+    --brand: #4361ee;
+    --accent: #f72585;
+    --ok: #06d6a0;
+    --warn: #ff9f1c;
+    --danger: #e63946;
+    --ink: #232c3d;
+    --muted: #7c8aa0;
+    --line: #e3e8f1;
+    --bg: #f4f6fb;
+    --card: #fff;
+    --mono: ui-monospace, "SF Mono", Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.65;
+    padding: 22px;
+  }
+
+  h1 { font-size: 1.45rem; }
+  .sub { color: var(--muted); font-size: .88rem; margin: 4px 0 16px; }
+
+  section {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px;
+    margin: 0 auto 16px;
+    max-width: 1000px;
+  }
+
+  h2 { font-size: 1.06rem; margin-bottom: 4px; }
+  h3 { font-size: .92rem; margin: 12px 0 8px; }
+
+  .tip {
+    font-size: .82rem;
+    color: var(--muted);
+    background: #f1f5ff;
+    border-left: 3px solid var(--brand);
+    padding: 7px 11px;
+    margin: 8px 0 14px;
+    border-radius: 0 6px 6px 0;
+  }
+
+  code {
+    background: #eef1f8;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: .82em;
+    font-family: var(--mono);
+  }
+
+  button {
+    padding: 8px 14px;
+    border: 0;
+    border-radius: 8px;
+    cursor: pointer;
+    background: var(--brand);
+    color: #fff;
+    font-size: .82rem;
+    transition: filter .15s ease, transform .15s ease;
+  }
+  button:hover { filter: brightness(1.08); }
+  button:active { transform: scale(0.97); }
+  button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  button.ok { background: var(--ok); }
+  button.danger { background: var(--danger); }
+  button.warn { background: var(--warn); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; }
+
+  /* ================= ① 任务切片 ================= */
+  .progress-wrap {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 14px 0 10px;
+  }
+  .progress {
+    flex: 1;
+    height: 22px;
+    background: #e9eef8;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .progress i {
+    display: block;
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #4361ee, #7b2ff7);
+    transition: width .08s linear;
+  }
+  .pct {
+    font-family: var(--mono);
+    font-size: .9rem;
+    min-width: 52px;
+    text-align: right;
+  }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
+    margin: 10px 0;
+  }
+  .stat {
+    background: #fbfcff;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 8px 10px;
+    font-size: .76rem;
+    color: var(--muted);
+  }
+  .stat b { display: block; color: var(--ink); font-family: var(--mono); font-size: .95rem; }
+  .click-zone {
+    border: 2px dashed #b9c6dd;
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 12px;
+    background: #fbfdff;
+    cursor: pointer;
+    user-select: none;
+    transition: background .15s ease, border-color .15s ease;
+  }
+  .click-zone:active { background: #eef4ff; border-color: var(--brand); }
+  .click-zone b { font-family: var(--mono); font-size: 1.1rem; color: var(--brand); }
+  .click-zone .delay { color: var(--danger); font-family: var(--mono); }
+  .api-row { font-size: .78rem; color: var(--muted); margin-top: 8px; }
+  .api-row b { color: var(--accent); font-family: var(--mono); }
+
+  /* ================= ② 布局抖动 ================= */
+  .thrash-flex {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 12px 0;
+    padding: 8px;
+    background: #fbfcff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .thrash-box {
+    width: 34px;
+    height: 32px;
+    border-radius: 4px;
+    background: linear-gradient(180deg, #8ecae6, #219ebc);
+    transition: height .12s ease;
+  }
+  .readout {
+    font-family: var(--mono);
+    font-size: .82rem;
+    color: var(--muted);
+    min-height: 1.5em;
+    margin-top: 6px;
+  }
+  .readout b { color: var(--ink); }
+
+  /* ================= ③ 虚拟列表 ================= */
+  .vlist {
+    position: relative;
+    height: 320px;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+    margin-top: 10px;
+    overscroll-behavior: contain;
+  }
+  .vspacer { height: 32000px; }   /* 1000 行 × 32px */
+  .vwindow { position: absolute; left: 0; right: 0; top: 0; }
+  .vrow {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    font-size: .78rem;
+    border-bottom: 1px solid #f1f4fa;
+    font-family: var(--mono);
+    color: #4d5b73;
+    background: #fff;
+  }
+  .vrow:nth-child(even) { background: #fafcff; }
+  .vrow .tag { color: var(--muted); font-size: .72rem; }
+  .vmeta {
+    display: flex;
+    gap: 16px;
+    font-size: .78rem;
+    color: var(--muted);
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .vmeta b { color: var(--ink); font-family: var(--mono); }
+
+  /* ================= ④ INP ================= */
+  .inp-grid {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 16px;
+    align-items: start;
+    margin-top: 10px;
+  }
+  .inp-target {
+    height: 120px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #f72585, #b5179e);
+    font-size: .95rem;
+    font-weight: 600;
+  }
+  .inp-target:active { transform: scale(0.98); }
+  .inp-switch {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    font-size: .76rem;
+    color: var(--muted);
+    margin-top: 10px;
+    max-width: 260px;
+  }
+  .inp-switch input { margin-top: 3px; }
+  .segments { font-family: var(--mono); font-size: .8rem; }
+  .seg-row {
+    display: grid;
+    grid-template-columns: 92px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    margin: 8px 0;
+  }
+  .seg-row .bar {
+    height: 14px;
+    border-radius: 7px;
+    background: #e9eef8;
+    overflow: hidden;
+  }
+  .seg-row .bar i { display: block; height: 100%; width: 0%; border-radius: 7px; }
+  .tl-input { background: var(--warn); }
+  .tl-proc { background: var(--brand); }
+  .tl-pres { background: var(--accent); }
+  .seg-row .val { min-width: 62px; text-align: right; color: var(--ink); }
+  .inp-total {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--line);
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    font-family: var(--mono);
+  }
+  .inp-total b { font-size: 1.3rem; }
+  .verdict { font-size: .78rem; padding: 2px 10px; border-radius: 999px; color: #fff; }
+  .verdict.good { background: var(--ok); }
+  .verdict.mid { background: var(--warn); }
+  .verdict.bad { background: var(--danger); }
+  .inp-note { font-size: .76rem; color: var(--muted); margin-top: 8px; }
+
+  /* ================= 日志 / Toast ================= */
+  .log-box {
+    max-width: 1000px;
+    margin: 0 auto 30px;
+    background: #0f172a;
+    color: #cbd5e1;
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-family: var(--mono);
+    font-size: .76rem;
+    max-height: 200px;
+    overflow: auto;
+  }
+  .log-box .line { padding: 2px 0; border-bottom: 1px solid rgba(148, 163, 184, .08); }
+  .log-box .t { color: #64748b; margin-right: 8px; }
+  .toast {
+    position: fixed;
+    right: 18px;
+    top: 18px;
+    z-index: 99;
+    background: #0f172a;
+    color: #fff;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: .8rem;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, .25);
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: opacity .2s ease, transform .2s ease;
+    pointer-events: none;
+    max-width: 320px;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+
+  @media (max-width: 760px) {
+    body { padding: 12px; }
+    .inp-grid { grid-template-columns: 1fr; }
+    section { padding: 14px; }
+  }
+</style>
+</head>
+<body>
+
+<h1>主线程长任务实验室</h1>
+<p class="sub">同步大块 vs 任务切片、布局抖动、虚拟列表、INP 三段——用真实测量把"卡"拆开看。</p>
+
+<div class="btn-row" style="max-width:1000px;margin:0 auto 14px">
+  <button class="ghost" id="globalReset">↩ 一键重置全部实验</button>
+  <span style="font-size:.78rem;color:var(--muted)">重置会停止所有任务、清空日志与计数，不会刷新页面。</span>
+</div>
+
+<!-- ① 长任务 vs 切片 -->
+<section>
+  <h2>① 主线程阻塞：同步大块 vs 任务切片</h2>
+  <div class="tip">
+    同样是 1200ms 的 CPU 计算：大块版每约 <b>120ms</b> 才让出一次，期间点击、输入、渲染全部排队；
+    切片版每约 <b>4ms</b> 让出一次，进度平滑、按钮随时可点。下方计数器是真实的点击响应延迟。
+  </div>
+  <div class="btn-row">
+    <button class="warn" id="runChunky">▶ 同步大块（每块≈120ms）</button>
+    <button class="ok" id="runSlice">▶ 任务切片（每块≈4ms）</button>
+    <button class="danger" id="stopBtn" disabled>■ 停止</button>
+  </div>
+  <div class="progress-wrap">
+    <div class="progress"><i id="bar"></i></div>
+    <span class="pct" id="pct">0%</span>
+  </div>
+  <div class="stats">
+    <div class="stat">已处理 <b id="workedOut">0ms</b></div>
+    <div class="stat">分块数 <b id="sliceOut">0</b></div>
+    <div class="stat">本轮长任务 <b id="longCount">0</b></div>
+    <div class="stat">长任务累计 <b id="longTotal">0ms</b></div>
+  </div>
+  <div class="api-row">切片原语：<b id="apiOut">检测中…</b> · 长任务观测：<b id="ltSupport">检测中…</b></div>
+
+  <div class="click-zone" id="clickZone" role="button" tabindex="0">
+    <div>趁任务运行时，在这里连续点击 → 点击次数 <b id="clickCount">0</b></div>
+    <div style="margin-top:4px;font-size:.8rem;color:var(--muted)">
+      最近一次从"手指/鼠标事件发生"到"回调真正执行"的延迟：
+      <span class="delay" id="clickDelay">--</span>
+    </div>
+  </div>
+
+  <div class="tip" style="margin-bottom:0">
+    提示：先点「同步大块」，立刻到上方测量区狂点。你会看到点击计数在每一大块结束后成批跳增，
+    延迟读数达到 100ms 以上；换成「任务切片」再点，计数几乎即时响应。
+  </div>
+</section>
+
+<!-- ② 布局抖动 -->
+<section>
+  <h2>② 布局抖动：读写交替 vs 批量读写</h2>
+  <div class="tip">
+    在同一个循环里读 <code>offsetHeight</code> 再写 <code>height</code>，每次读都会强制浏览器
+    <b>同步完成一次布局</b>；批量读写把"读"和"写"分成两个阶段，只布局一次。同一批 120 个盒子，看耗时差。
+  </div>
+  <div class="btn-row">
+    <button class="warn" id="thrashBtn">⚠ 读写交替（120 次）</button>
+    <button class="ok" id="batchBtn">✔ 批量读写（120 次）</button>
+    <button class="ghost" id="thrashReset">↩ 复位盒子</button>
+  </div>
+  <div class="thrash-flex" id="thrashFlex"></div>
+  <div class="readout" id="thrashOut">点击按钮开始对比（盒子高度会在 32~60px 之间变化）。</div>
+</section>
+
+<!-- ③ 虚拟列表 -->
+<section>
+  <h2>③ 虚拟列表：1000 行只渲染可视区</h2>
+  <div class="tip">
+    滚动容器只有 320px 高，1000 行用占位高度撑开滚动条；实际只渲染可视窗口 + 上下各几行。
+    滚动时观察「已渲染节点」始终维持在 15~20 个，而不是 1000 个。
+  </div>
+  <div class="vlist" id="vlist">
+    <div class="vspacer" id="vspacer"></div>
+    <div class="vwindow" id="vwindow"></div>
+  </div>
+  <div class="vmeta">
+    <span>已渲染节点：<b id="vcount">0</b> / 1000</span>
+    <span>滚动位置：<b id="vscroll">0px</b></span>
+    <span>单行高度：<b>32px</b></span>
+  </div>
+</section>
+
+<!-- ④ INP -->
+<section>
+  <h2>④ INP 三段：输入延迟 / 处理时间 / 呈现延迟</h2>
+  <div class="tip">
+    点击右侧按钮，Event Timing 会把一次交互拆成三段。想制造大的"处理时间"，
+    勾选下方"回调里加 200ms 计算"；想制造大的"输入延迟"，先跑一次上面的同步大块再点。
+  </div>
+  <div class="inp-grid">
+    <div>
+      <button class="inp-target" id="inpTarget">点我测量一次交互</button>
+      <label class="inp-switch">
+        <input type="checkbox" id="heavyHandler">
+        <span>在点击回调里加 200ms 同步计算（专门制造 processing 时间）</span>
+      </label>
+    </div>
+    <div class="segments">
+      <div class="seg-row">
+        <span>输入延迟</span>
+        <span class="bar"><i class="tl-input" id="tlInput"></i></span>
+        <span class="val" id="segInput">--</span>
+      </div>
+      <div class="seg-row">
+        <span>处理时间</span>
+        <span class="bar"><i class="tl-proc" id="tlProc"></i></span>
+        <span class="val" id="segProc">--</span>
+      </div>
+      <div class="seg-row">
+        <span>呈现延迟</span>
+        <span class="bar"><i class="tl-pres" id="tlPres"></i></span>
+        <span class="val" id="segPres">--</span>
+      </div>
+      <div class="inp-total">
+        <span>总耗时</span>
+        <b id="inpTotal">--</b>
+        <span class="verdict mid" id="inpVerdict">等待交互</span>
+      </div>
+      <div class="inp-note" id="inpNote">Event Timing 检测中…</div>
+    </div>
+  </div>
+</section>
+
+<div class="log-box" id="logBox"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+
+  /* ================= 公共：日志 / Toast ================= */
+  const logBox = $('logBox');
+  function log(msg, kind) {
+    const colors = { ok: '#6ee7b7', warn: '#fbbf24', danger: '#fca5a5', info: '#93c5fd' };
+    const line = document.createElement('div');
+    line.className = 'line';
+    const t = new Date();
+    const hh = String(t.getHours()).padStart(2, '0');
+    const mm = String(t.getMinutes()).padStart(2, '0');
+    const ss = String(t.getSeconds()).padStart(2, '0');
+    line.innerHTML = '<span class="t">' + hh + ':' + mm + ':' + ss + '</span>' +
+      '<span style="color:' + (colors[kind] || '#cbd5e1') + '">' + msg + '</span>';
+    logBox.prepend(line);
+    while (logBox.children.length > 80) logBox.lastElementChild.remove();
+  }
+
+  let toastTimer = 0;
+  function toast(msg) {
+    const el = $('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+  }
+
+  /* ================= 任务切片基础设施 ================= */
+  const hasSchedulerYield =
+    typeof scheduler !== 'undefined' && typeof scheduler.yield === 'function';
+
+  const channel = new MessageChannel();
+  const waiting = [];
+  channel.port1.onmessage = () => {
+    const resolve = waiting.shift();
+    if (resolve) resolve();
+  };
+
+  function yieldToMain() {
+    if (hasSchedulerYield) return scheduler.yield();
+    return new Promise((resolve) => {
+      waiting.push(resolve);
+      channel.port2.postMessage(0);
+    });
+  }
+
+  const nextFrame = () =>
+    new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+  $('apiOut').textContent = hasSchedulerYield
+    ? 'scheduler.yield()（优先）'
+    : 'MessageChannel + requestAnimationFrame（回退）';
+
+  /* ================= 长任务观测 ================= */
+  let longCount = 0;
+  let longTotal = 0;
+  (function observeLongTasks() {
+    const supported =
+      'PerformanceObserver' in window &&
+      PerformanceObserver.supportedEntryTypes &&
+      PerformanceObserver.supportedEntryTypes.includes('longtask');
+    $('ltSupport').textContent = supported ? 'longtask 已启用' : '当前浏览器不支持 longtask';
+    if (!supported) return;
+    try {
+      new PerformanceObserver((list) => {
+        list.getEntries().forEach((entry) => {
+          longCount++;
+          longTotal += entry.duration;
+          $('longCount').textContent = String(longCount);
+          $('longTotal').textContent = longTotal.toFixed(0) + 'ms';
+          log('⚠ 长任务 ' + entry.duration.toFixed(0) + 'ms（开始于 ' +
+            entry.startTime.toFixed(0) + 'ms）', 'warn');
+        });
+      }).observe({ type: 'longtask', buffered: true });
+    } catch (err) {
+      $('ltSupport').textContent = 'longtask 观测创建失败';
+    }
+  })();
+
+  /* ================= ① 任务切片实验 ================= */
+  const TOTAL_WORK_MS = 1200;
+  const task = {
+    running: false,
+    abort: false,
+    worked: 0,
+    slices: 0,
+    mode: ''
+  };
+  let runToken = 0;
+
+  function setTaskButtons(running) {
+    $('runChunky').disabled = running;
+    $('runSlice').disabled = running;
+    $('stopBtn').disabled = !running;
+  }
+
+  function updateProgress() {
+    const pct = Math.min(100, (task.worked / TOTAL_WORK_MS) * 100);
+    $('bar').style.width = pct.toFixed(1) + '%';
+    $('pct').textContent = Math.round(pct) + '%';
+    $('workedOut').textContent = Math.min(TOTAL_WORK_MS, Math.round(task.worked)) + 'ms';
+    $('sliceOut').textContent = String(task.slices);
+  }
+
+  // 一段纯计算：按目标毫秒数忙等，用于真实占用主线程
+  function burnFor(ms) {
+    const end = performance.now() + ms;
+    let x = 1.2345;
+    let i = 0;
+    while (performance.now() < end) {
+      for (let k = 0; k < 4000; k++) {
+        x += Math.sqrt((i + k) % 997) * 0.0001;
+        i++;
+      }
+    }
+    return x;
+  }
+
+  async function runTask(mode) {
+    if (task.running) return;
+    const id = ++runToken;
+    task.running = true;
+    task.abort = false;
+    task.worked = 0;
+    task.slices = 0;
+    task.mode = mode;
+    setTaskButtons(true);
+    updateProgress();
+
+    const chunkMs = mode === 'chunky' ? 120 : 4;
+    log((mode === 'chunky' ? '同步大块' : '任务切片') +
+      '开始：每块约 ' + chunkMs + 'ms，总工作量 ' + TOTAL_WORK_MS + 'ms', 'info');
+    toast(mode === 'chunky' ? '大块模式：点击会明显延迟' : '切片模式：点击应即时响应');
+
+    try {
+      while (task.worked < TOTAL_WORK_MS) {
+        if (task.abort || id !== runToken) break;
+
+        const sliceStart = performance.now();
+        burnFor(chunkMs);
+        const spent = performance.now() - sliceStart;
+        task.worked += spent;
+        task.slices++;
+        updateProgress();
+
+        if (task.abort || id !== runToken) break;
+
+        await yieldToMain();
+        if (id !== runToken) return;                 // 已被重置，静默退出
+
+        // 大块模式每块后等一帧，确保进度可见、点击能插入；
+        // 切片模式每 8 片（约 32ms）补一帧，避免只更新数据不绘制。
+        const frameEvery = mode === 'chunky' ? 1 : 8;
+        if (task.slices % frameEvery === 0) await nextFrame();
+        if (id !== runToken) return;
+      }
+    } finally {
+      if (id === runToken) {
+        task.running = false;
+        setTaskButtons(false);
+        const completed = task.worked >= TOTAL_WORK_MS;
+        log('任务结束：' + (completed ? '完成' : '被中断') + '，共 ' +
+          task.slices + ' 块，处理 ' + Math.min(TOTAL_WORK_MS, Math.round(task.worked)) + 'ms',
+          completed ? 'ok' : 'danger');
+        toast(completed ? '任务完成' : '任务已停止');
+      }
+    }
+  }
+
+  $('runChunky').addEventListener('click', () => runTask('chunky'));
+  $('runSlice').addEventListener('click', () => runTask('slice'));
+  $('stopBtn').addEventListener('click', () => {
+    task.abort = true;
+    log('收到停止请求：当前块结束后生效（大块最坏约 120ms）', 'danger');
+  });
+
+  /* 点击响应计数器：测量事件从产生到回调执行的延迟 */
+  let clickCount = 0;
+  function handleClick(ev) {
+    const latency = Math.max(0, performance.now() - ev.timeStamp);
+    clickCount++;
+    $('clickCount').textContent = String(clickCount);
+    $('clickDelay').textContent = latency.toFixed(1) + 'ms';
+    if (latency > 80) {
+      log('点击被延迟 ' + latency.toFixed(0) + 'ms 才执行（主线程忙）', 'danger');
+    }
+  }
+  $('clickZone').addEventListener('click', handleClick);
+  $('clickZone').addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' || ev.key === ' ') handleClick(ev);
+  });
+
+  /* ================= ② 布局抖动实验 ================= */
+  const thrashFlex = $('thrashFlex');
+  const boxes = [];
+  for (let i = 0; i < 120; i++) {
+    const box = document.createElement('div');
+    box.className = 'thrash-box';
+    thrashFlex.appendChild(box);
+    boxes.push(box);
+  }
+
+  function nextHeight(h) {
+    return h >= 60 ? 32 : h + 2;
+  }
+
+  $('thrashBtn').addEventListener('click', () => {
+    const t0 = performance.now();
+    // 反面：每次读 offsetHeight 都会强制同步布局
+    for (const box of boxes) {
+      const h = box.offsetHeight;
+      box.style.height = nextHeight(h) + 'px';
+    }
+    const cost = performance.now() - t0;
+    $('thrashOut').innerHTML = '读写交替：<b>' + cost.toFixed(1) + 'ms</b> —— 120 次读触发了多次同步布局';
+    log('读写交替 120 次耗时 ' + cost.toFixed(1) + 'ms', 'warn');
+    toast('读写交替：' + cost.toFixed(1) + 'ms');
+  });
+
+  $('batchBtn').addEventListener('click', () => {
+    const t0 = performance.now();
+    // 正例：先批量读，再批量写
+    const heights = boxes.map((box) => box.offsetHeight);
+    for (let i = 0; i < boxes.length; i++) {
+      boxes[i].style.height = nextHeight(heights[i]) + 'px';
+    }
+    const cost = performance.now() - t0;
+    $('thrashOut').innerHTML = '批量读写：<b>' + cost.toFixed(1) + 'ms</b> —— 只有一次布局计算';
+    log('批量读写 120 次耗时 ' + cost.toFixed(1) + 'ms', 'ok');
+    toast('批量读写：' + cost.toFixed(1) + 'ms');
+  });
+
+  $('thrashReset').addEventListener('click', () => {
+    boxes.forEach((box) => { box.style.height = '32px'; });
+    $('thrashOut').textContent = '已复位：所有盒子回到 32px。';
+  });
+
+  /* ================= ③ 虚拟列表 ================= */
+  const vlist = $('vlist');
+  const vwindow = $('vwindow');
+  const vspacer = $('vspacer');
+  const ROW_H = 32;
+  const VIEW_H = 320;
+  const TOTAL_ROWS = 1000;
+  const OVERSCAN = 4;
+  vspacer.style.height = (TOTAL_ROWS * ROW_H) + 'px';
+
+  function renderVList() {
+    const scrollTop = vlist.scrollTop;
+    const visible = Math.ceil(VIEW_H / ROW_H) + OVERSCAN * 2;
+    const start = Math.max(
+      0,
+      Math.min(TOTAL_ROWS - visible, Math.floor(scrollTop / ROW_H) - OVERSCAN)
+    );
+    const end = Math.min(TOTAL_ROWS, start + visible);
+
+    vwindow.style.transform = 'translateY(' + (start * ROW_H) + 'px)';
+    let html = '';
+    for (let i = start; i < end; i++) {
+      const no = String(i + 1).padStart(4, '0');
+      html += '<div class="vrow"><span>#' + no + ' · 用户数据行</span>' +
+        '<span class="tag">' + (i % 3 === 0 ? '高优先级' : '普通') + '</span></div>';
+    }
+    vwindow.innerHTML = html;
+    $('vcount').textContent = String(end - start);
+    $('vscroll').textContent = Math.round(scrollTop) + 'px';
+  }
+
+  let vTicking = false;
+  vlist.addEventListener('scroll', () => {
+    if (vTicking) return;
+    vTicking = true;
+    requestAnimationFrame(() => {
+      renderVList();
+      vTicking = false;
+    });
+  }, { passive: true });
+
+  renderVList();
+
+  /* ================= ④ INP 三段 ================= */
+  let eventTimingOn = false;
+  const EVENT_NAMES = ['pointerdown', 'pointerup', 'click', 'keydown'];
+
+  (function observeEventTiming() {
+    const supported =
+      'PerformanceObserver' in window &&
+      PerformanceObserver.supportedEntryTypes &&
+      PerformanceObserver.supportedEntryTypes.includes('event');
+    if (!supported) {
+      $('inpNote').textContent =
+        '当前浏览器不支持 Event Timing，下面用"点击时间戳 → 下一帧"的近似测量。';
+      return;
+    }
+    try {
+      new PerformanceObserver((list) => {
+        list.getEntries().forEach((entry) => {
+          if (!EVENT_NAMES.includes(entry.name)) return;
+          if (typeof entry.processingStart !== 'number') return;
+          const inputDelay = Math.max(0, entry.processingStart - entry.startTime);
+          const processing = Math.max(0, entry.processingEnd - entry.processingStart);
+          const presentation = Math.max(
+            0,
+            entry.duration - (entry.processingEnd - entry.startTime)
+          );
+          if (inputDelay + processing + presentation < 16) return;
+          showINP(entry.name, inputDelay, processing, presentation);
+        });
+      }).observe({ type: 'event', durationThreshold: 16, buffered: true });
+      eventTimingOn = true;
+      $('inpNote').textContent =
+        'Event Timing 已启用：点击右侧按钮，三段耗时来自真实测量。';
+      log('Event Timing 已启用（durationThreshold: 16ms）', 'ok');
+    } catch (err) {
+      $('inpNote').textContent = 'Event Timing 创建失败，已退回近似测量。';
+    }
+  })();
+
+  function showINP(name, inputDelay, processing, presentation) {
+    const total = inputDelay + processing + presentation;
+    const safeTotal = Math.max(total, 0.001);
+
+    $('segInput').textContent = inputDelay.toFixed(1) + 'ms';
+    $('segProc').textContent = processing.toFixed(1) + 'ms';
+    $('segPres').textContent = presentation.toFixed(1) + 'ms';
+    $('tlInput').style.width = (inputDelay / safeTotal * 100).toFixed(1) + '%';
+    $('tlProc').style.width = (processing / safeTotal * 100).toFixed(1) + '%';
+    $('tlPres').style.width = (presentation / safeTotal * 100).toFixed(1) + '%';
+    $('inpTotal').textContent = total.toFixed(0) + 'ms';
+
+    const verdict = $('inpVerdict');
+    if (total <= 200) {
+      verdict.className = 'verdict good';
+      verdict.textContent = '良好（≤200ms）';
+    } else if (total <= 500) {
+      verdict.className = 'verdict mid';
+      verdict.textContent = '需改进（200~500ms）';
+    } else {
+      verdict.className = 'verdict bad';
+      verdict.textContent = '差（>500ms）';
+    }
+
+    if (total > 300) {
+      log('交互 ' + name + ' 总耗时 ' + total.toFixed(0) + 'ms（输入 ' +
+        inputDelay.toFixed(0) + ' / 处理 ' + processing.toFixed(0) +
+        ' / 呈现 ' + presentation.toFixed(0) + '）', 'warn');
+    }
+  }
+
+  // 兜底测量：不支持 Event Timing 时，用事件时间戳 + 下一帧近似
+  $('inpTarget').addEventListener('click', (ev) => {
+    const handlerStart = performance.now();
+    const inputDelay = Math.max(0, handlerStart - ev.timeStamp);
+
+    if ($('heavyHandler').checked) {
+      burnFor(200);                      // 故意制造 processing 时间
+    }
+    const processing = performance.now() - handlerStart;
+
+    requestAnimationFrame(() => {
+      const presentation = Math.max(0, performance.now() - handlerStart - processing);
+      // 先展示近似值；若 Event Timing 稍后回传真实条目，会覆盖为实测三段
+      showINP('click', inputDelay, processing, presentation);
+      if (eventTimingOn) {
+        $('inpNote').textContent =
+          'Event Timing 已启用：若该次交互超过 16ms，稍后会被真实条目覆盖。';
+      } else {
+        $('inpNote').textContent =
+          '近似测量：inputDelay 来自事件时间戳，processing 来自回调耗时，presentation 来自回调结束到下一帧。';
+      }
+    });
+  });
+
+  /* ================= 一键重置 ================= */
+  $('globalReset').addEventListener('click', () => {
+    // 令牌自增让正在运行的循环在下一个让出点静默退出
+    runToken++;
+    task.abort = true;
+    task.running = false;
+    task.worked = 0;
+    task.slices = 0;
+    task.mode = '';
+    setTaskButtons(false);
+    updateProgress();
+
+    clickCount = 0;
+    $('clickCount').textContent = '0';
+    $('clickDelay').textContent = '--';
+
+    boxes.forEach((box) => { box.style.height = '32px'; });
+    $('thrashOut').textContent = '点击按钮开始对比（盒子高度会在 32~60px 之间变化）。';
+
+    vlist.scrollTop = 0;
+    renderVList();
+
+    $('segInput').textContent = '--';
+    $('segProc').textContent = '--';
+    $('segPres').textContent = '--';
+    $('tlInput').style.width = '0%';
+    $('tlProc').style.width = '0%';
+    $('tlPres').style.width = '0%';
+    $('inpTotal').textContent = '--';
+    $('inpVerdict').className = 'verdict mid';
+    $('inpVerdict').textContent = '等待交互';
+    $('heavyHandler').checked = false;
+
+    longCount = 0;
+    longTotal = 0;
+    $('longCount').textContent = '0';
+    $('longTotal').textContent = '0ms';
+
+    logBox.innerHTML = '';
+    log('全部实验已重置：任务停止、计数清零、日志清空。', 'ok');
+    toast('已重置全部实验');
+  });
+
+  log('长任务实验室就绪：先跑大块与切片，再试布局抖动、虚拟列表与 INP。', 'ok');
+</script>
+</body>
+</html>

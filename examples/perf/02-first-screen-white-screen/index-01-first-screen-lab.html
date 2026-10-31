@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 02：首屏渲染与白屏实验室
+  ------------------------------------------------------------
+  【知识点】
+    1. 关键渲染路径：DNS → TTFB → HTML → CSS（渲染阻塞）→
+       同步 JS（阻塞解析）→ 字体 → 图片 → 首次内容绘制
+    2. “朴素加载”与“优化加载”的分段耗时对比（时间线动画）
+    3. 骨架屏：用占位块提前给出画面，降低感知等待
+    4. 字体行为：font-display: block（FOIT）、swap（FOUT）、
+       swap + preload（更快替换）三种表现对比
+    5. 资源提示：preconnect / preload / modulepreload /
+       prefetch 的用途与误用风险清单
+    6. 白屏检测：FCP + MutationObserver + 3 秒超时 + 错误兜底
+  【运行方式】
+    单文件、零网络、零 CDN、零外部图片/字体；双击 file://
+    即可运行。所有字体行为用本地字体族模拟，不加载网络字体。
+  【效果说明】
+    ① 点击“播放关键路径对比”，两条时间线按模拟耗时推进，
+      可看到“首屏”标记出现的时刻差异；
+    ② “切换骨架屏”在预览卡中切换真实内容 / 骨架占位；
+    ③ “播放字体对比”依次演示 FOIT / FOUT / 快速 swap；
+    ④ 勾选资源提示清单，实时计算教学用收益估算并提示风险；
+    ⑤ 白屏检测器在页面加载后真实运行，也可手动模拟白屏与异常。
+  【注意事项】
+    1. 时间线的毫秒数是教学示意，不是当前页真实测量值；
+       真实首屏请用 PerformanceObserver / DevTools 采集。
+    2. 字体用 Georgia 与 Courier New 两个本地字体族模拟
+       “回退字体 / Web 字体”，不发起任何字体请求。
+    3. 模拟白屏只在页面内的“小视口”中短暂变白，不会让整页
+       不可恢复；所有定时器都可被重置取消。
+    4. 所有反馈只用页面内日志 / 状态卡 / toast，无
+       alert/prompt/confirm；无外部请求。
+  ============================================================
+-->
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>示例 02 · 首屏渲染与白屏实验室</title>
+  <style>
+    :root {
+      --ink:#1f2a37; --muted:#667085; --line:#dbe3ec; --bg:#f3f6fa;
+      --card:#fff; --brand:#2563eb; --brand-soft:#e8efff;
+      --good:#15803d; --good-soft:#e7f6ec; --warn:#b45309; --warn-soft:#fff4df;
+      --poor:#b91c1c; --poor-soft:#fdeaea; --radius:12px;
+
+      /* 关键路径分段配色 */
+      --c-dns:#94a3b8; --c-ttfb:#64748b; --c-html:#60a5fa;
+      --c-css:#f59e0b; --c-js:#ef4444; --c-font:#a855f7; --c-img:#10b981;
+    }
+
+    * { box-sizing:border-box; margin:0; padding:0; }
+
+    body {
+      font-family:"PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+      background:radial-gradient(900px 400px at 10% -10%, #e7f0ff 0%, transparent 70%), var(--bg);
+      color:var(--ink); line-height:1.6; padding:22px 16px 60px;
+    }
+
+    .wrap { max-width:1080px; margin:0 auto; }
+    h1 { font-size:1.4rem; letter-spacing:.2px; }
+    h2 { font-size:1.02rem; margin-bottom:8px; }
+    h3 { font-size:.88rem; margin:12px 0 6px; }
+    .sub { color:var(--muted); font-size:.86rem; margin:6px 0 14px; }
+
+    section.card {
+      background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+      padding:16px 18px; margin-bottom:14px; box-shadow:0 1px 2px rgba(16,24,40,.04);
+    }
+
+    p, li, td, th { font-size:.85rem; }
+    li { margin:3px 0; }
+
+    code {
+      background:#eef2f7; border-radius:4px; padding:0 5px;
+      font-family:"SF Mono",Consolas,monospace; font-size:.78rem;
+    }
+
+    .btn {
+      border:0; border-radius:9px; padding:9px 14px; font-size:.84rem; font-weight:600;
+      cursor:pointer; background:var(--brand); color:#fff; margin:4px 8px 4px 0;
+      transition:transform .12s ease, box-shadow .12s ease;
+    }
+    .btn:hover { box-shadow:0 6px 16px rgba(37,99,235,.25); }
+    .btn:active { transform:scale(.97); }
+    .btn.ghost { background:#eef2f8; color:var(--ink); border:1px solid var(--line); }
+    .btn.ghost:hover { box-shadow:none; background:#e5ebf3; }
+    .btn:focus-visible, input:focus-visible { outline:3px solid rgba(37,99,235,.35); outline-offset:2px; }
+
+    /* ---------- 关键路径时间线 ---------- */
+    .timeline {
+      margin-top:10px; border:1px solid var(--line); border-radius:10px; padding:14px 12px 10px;
+      background:#fbfcfe;
+    }
+    .tl-row { margin-bottom:26px; }
+    .tl-row:last-child { margin-bottom:6px; }
+    .tl-head {
+      display:flex; align-items:center; gap:8px;
+      font-size:.82rem; font-weight:600; margin-bottom:16px;
+    }
+    .tl-head .tag {
+      font-size:.68rem; border-radius:999px; padding:1px 8px;
+      background:#eef2f8; color:var(--muted); font-weight:600;
+    }
+    .tl-head .tag.good { background:var(--good-soft); color:var(--good); }
+    .tl-track {
+      position:relative; display:flex; height:34px; border-radius:7px;
+      overflow:visible; background:#eaeff6;
+    }
+    .seg {
+      position:relative; height:100%; min-width:2px; opacity:.28; overflow:hidden;
+      border-right:1px solid rgba(255,255,255,.55); transition:opacity .12s linear;
+      display:flex; align-items:center; justify-content:center; }
+    .seg:first-child { border-radius:7px 0 0 7px; }
+    .seg:last-child { border-right:0; border-radius:0 7px 7px 0; }
+    .seg.active { opacity:1; }
+    .seg span {
+      color:#fff; font-size:.62rem; font-weight:600; white-space:nowrap;
+      text-shadow:0 1px 1px rgba(15,23,36,.25); }
+    .seg.dns { background:var(--c-dns); } .seg.ttfb { background:var(--c-ttfb); }
+    .seg.html { background:var(--c-html); } .seg.css { background:var(--c-css); }
+    .seg.js { background:var(--c-js); } .seg.font { background:var(--c-font); }
+    .seg.img { background:var(--c-img); }
+    .playhead {
+      position:absolute; top:-6px; bottom:-6px; width:2px; left:0; background:#0f1724;
+      pointer-events:none; transition:left .06s linear; }
+    .fp-marker {
+      position:absolute; top:-22px; bottom:0; width:0; border-left:1px dashed #15803d;
+      pointer-events:none;
+    }
+    .fp-marker .fp-label {
+      position:absolute; top:-2px; left:4px; white-space:nowrap; font-size:.64rem;
+      color:var(--good); background:var(--good-soft); border-radius:999px; padding:0 6px; }
+
+    .legend {
+      display:flex; flex-wrap:wrap; gap:10px; margin-top:4px;
+      font-size:.72rem; color:var(--muted);
+    }
+    .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:-1px; }
+
+    .result {
+      margin-top:10px; border:1px dashed var(--line); border-radius:9px;
+      background:#fbfcfe; padding:9px 11px; font-size:.82rem; min-height:44px;
+    }
+    .result strong { color:var(--brand); }
+
+    /* ---------- 骨架屏预览 ---------- */
+    .preview {
+      margin-top:8px; border:1px solid var(--line); border-radius:10px;
+      background:#fff; overflow:hidden;
+    }
+    .preview-topbar { height:10px; background:#eaeff6; }
+    .preview-body { padding:14px; }
+    .pv-title { font-size:1.05rem; font-weight:700; margin-bottom:8px; min-height:1.4em; }
+    .pv-line { height:10px; border-radius:999px; background:#edf1f6; margin:8px 0; }
+    .pv-line:nth-child(3) { width:82%; }
+    .pv-line:nth-child(4) { width:60%; }
+    .pv-img { margin-top:10px; height:120px; border-radius:8px; background:linear-gradient(135deg,#dbeafe,#bfdbfe); }
+
+    .skel .pv-title, .skel .pv-line, .skel .pv-img { color:transparent; border:0; }
+    .skel .pv-title { height:18px; width:55%; border-radius:6px; }
+    .skel .pv-line,
+    .skel .pv-img {
+      background:linear-gradient(90deg,#eef2f7 25%,#e3e9f1 37%,#eef2f7 63%);
+      background-size:400% 100%;
+      animation:shimmer 1.4s ease infinite;
+    }
+    @keyframes shimmer { from { background-position:100% 0; } to { background-position:0 0; } }
+    @media (prefers-reduced-motion: reduce) {
+      .skel .pv-line, .skel .pv-img, .skel .pv-title { animation:none; background:#eef2f7; }
+    }
+    .preview-foot { color:var(--muted); font-size:.76rem; margin-top:8px; }
+
+    /* ---------- 字体对比 ---------- */
+    .font-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:10px; margin-top:8px; }
+    .font-card {
+      border:1px solid var(--line); border-radius:10px; padding:11px 12px;
+      background:#fbfcfe;
+    }
+    .font-card h4 { font-size:.82rem; margin-bottom:4px; }
+    .font-card .variant { color:var(--muted); font-size:.72rem; font-family:"SF Mono",Consolas,monospace; }
+    .font-demo {
+      font-size:1.22rem; font-weight:700; margin:8px 0 4px; min-height:1.5em;
+      font-family:Georgia,"Times New Roman",serif;
+      transition:font-family .01s linear, letter-spacing .2s ease, opacity .2s ease; }
+    .font-demo.brand {
+      font-family:"Courier New",monospace; letter-spacing:1.4px;
+    }
+    .font-demo.hidden { opacity:0.001; }
+    .font-status { font-size:.74rem; color:var(--muted); min-height:2.6em; }
+
+    /* ---------- 资源提示清单 ---------- */
+    .check-list { margin-top:6px; }
+    .check-item {
+      display:flex; align-items:flex-start; gap:9px; padding:8px 10px; margin-bottom:7px;
+      border:1px solid var(--line); border-radius:9px; background:#fbfcfe; }
+    .check-item input[type="checkbox"] {
+      width:17px; height:17px; margin-top:2px; flex:0 0 auto; cursor:pointer;
+    }
+    .check-item .ci-main { flex:1; }
+    .check-item .ci-title { font-size:.83rem; font-weight:600; }
+    .check-item .ci-meta { font-size:.74rem; color:var(--muted); margin-top:2px; }
+    .check-item.gain .ci-meta { color:var(--good); }
+    .check-item.risk .ci-meta { color:var(--poor); }
+    .hint-summary {
+      border:1px dashed var(--line); border-radius:9px; background:#fff8e6;
+      padding:9px 11px; font-size:.82rem; margin-top:4px;
+    }
+
+    /* ---------- 白屏检测 ---------- */
+    .det-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px; }
+    .mini-viewport {
+      position:relative; height:170px; border:1px solid var(--line); border-radius:10px;
+      overflow:hidden; background:#fff;
+    }
+    .mini-viewport .mv-content { padding:14px; }
+    .mini-viewport .mv-content h4 { font-size:.9rem; margin-bottom:6px; }
+    .mini-viewport .mv-line { height:9px; border-radius:999px; background:#edf1f6; margin:7px 0; }
+    .mini-viewport .mv-line:nth-child(3) { width:70%; }
+    .mini-viewport .mv-cover {
+      position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none;
+      transition:opacity .2s ease; display:grid; place-items:center; color:#94a3b8; font-size:.75rem; }
+    .mini-viewport.blank .mv-cover { opacity:1; }
+
+    .detector-log {
+      background:#0f1724; color:#a7e8bd; border-radius:9px; padding:9px 11px; height:210px;
+      font-family:"SF Mono",Consolas,monospace; font-size:.72rem; overflow:auto; white-space:pre-wrap; }
+    .detector-log .err { color:#fecaca; }
+    .detector-log .warn { color:#fcd34d; }
+
+    #toast {
+      position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(16px);
+      background:#0f1724; color:#fff; padding:9px 18px; border-radius:999px;
+      font-size:.83rem; opacity:0; pointer-events:none; max-width:88vw; z-index:20;
+      transition:opacity .2s ease, transform .2s ease; }
+    #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+    @media (max-width:700px) {
+      .det-grid { grid-template-columns:1fr; }
+      .tl-head { flex-wrap:wrap; }
+    }
+    @media (max-width:620px) {
+      body { padding:16px 10px 50px; }
+      section.card { padding:13px 13px; }
+      .seg span { font-size:.55rem; }
+      .font-demo { font-size:1.05rem; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+
+    <header>
+      <h1>示例 02 · 首屏渲染与白屏实验室</h1>
+      <p class="sub">
+        对比“朴素加载”与“优化加载”的关键路径，观察骨架屏、字体 FOIT/FOUT、资源提示与白屏检测。
+        所有耗时均为教学示意，真实数据请用 <code>PerformanceObserver</code> 采集。
+      </p>
+    </header>
+
+    <!-- ============ 1. 时间线对比 ============ -->
+    <section class="card">
+      <h2>① 关键路径对比：朴素加载 vs 优化加载</h2>
+      <p class="sub" style="margin-bottom:6px">
+        点击播放，两条时间线按各自的模拟耗时推进。虚线标记为“首屏出现”的时刻。
+      </p>
+      <div class="sim-row">
+        <button class="btn" type="button" id="btnPlay">播放关键路径对比</button>
+        <button class="btn ghost" type="button" id="btnResetAll">一键重置</button>
+      </div>
+      <div class="result" id="playResult" aria-live="polite">等待播放。朴素方案首屏约 1580ms，优化方案约 400ms。</div>
+      <div class="timeline" id="timeline"></div>
+      <div class="legend">
+        <span><i style="background:var(--c-dns)"></i>DNS / 握手</span>
+        <span><i style="background:var(--c-ttfb)"></i>TTFB</span>
+        <span><i style="background:var(--c-html)"></i>HTML</span>
+        <span><i style="background:var(--c-css)"></i>CSS</span>
+        <span><i style="background:var(--c-js)"></i>同步 JS</span>
+        <span><i style="background:var(--c-font)"></i>字体</span>
+        <span><i style="background:var(--c-img)"></i>图片</span>
+      </div>
+    </section>
+
+    <!-- ============ 2. 骨架屏 ============ -->
+    <section class="card">
+      <h2>② 骨架屏：先给画面，再给内容</h2>
+      <p class="sub" style="margin-bottom:6px">
+        骨架屏让首屏立刻有“结构感”，但必须与真实布局同构，否则数据到达时仍会跳动。
+      </p>
+      <button class="btn ghost" type="button" id="btnSkeleton">切换骨架屏</button>
+      <div class="preview" id="preview">
+        <div class="preview-topbar"></div>
+        <div class="preview-body">
+          <div class="pv-title">真实内容标题</div>
+          <div class="pv-line"></div>
+          <div class="pv-line"></div>
+          <div class="pv-img"></div>
+        </div>
+      </div>
+      <p class="preview-foot" id="skelNote">
+        当前：真实内容。点击按钮后替换为骨架占位，注意占位块与真实内容的位置关系。
+      </p>
+    </section>
+
+    <!-- ============ 3. 字体行为 ============ -->
+    <section class="card">
+      <h2>③ 字体行为：FOIT / FOUT / swap + preload</h2>
+      <p class="sub" style="margin-bottom:6px">
+        用本地字体族模拟“回退字体 → Web 字体”的替换过程。注意文字何时可见、何时换字体。
+      </p>
+      <button class="btn" type="button" id="btnFont">播放字体对比</button>
+      <div class="font-grid">
+        <div class="font-card">
+          <h4>A · FOIT</h4>
+          <div class="variant">font-display: block</div>
+          <div class="font-demo" id="fontA">品牌字体 Aa 首屏标题</div>
+          <div class="font-status" id="fontAStatus">等待播放：block 期文字不可见。</div>
+        </div>
+        <div class="font-card">
+          <h4>B · FOUT</h4>
+          <div class="variant">font-display: swap</div>
+          <div class="font-demo" id="fontB">品牌字体 Aa 首屏标题</div>
+          <div class="font-status" id="fontBStatus">等待播放：先显示回退字体。</div>
+        </div>
+        <div class="font-card">
+          <h4>C · swap + preload</h4>
+          <div class="variant">font-display: swap + preload</div>
+          <div class="font-demo" id="fontC">品牌字体 Aa 首屏标题</div>
+          <div class="font-status" id="fontCStatus">等待播放：字体提前到达，替换更快。</div>
+        </div>
+      </div>
+      <p class="sub" style="margin-top:10px">
+        结论：正文优先 <code>swap</code> 保证可读；标题可用 <code>block</code>，但必须配合
+        <code>preload</code> 缩短静默期，否则就是“假白屏”。
+      </p>
+    </section>
+
+    <!-- ============ 4. 资源提示清单 ============ -->
+    <section class="card">
+      <h2>④ 资源提示清单（勾选查看估算）</h2>
+      <p class="sub" style="margin-bottom:4px">
+        下面的收益是教学估算，不是精确预测；重点是理解“每类提示解决哪一段等待”。
+      </p>
+      <div class="check-list" id="checkList">
+        <label class="check-item gain">
+          <input type="checkbox" data-gain="80" checked>
+          <div class="ci-main">
+            <div class="ci-title"><code>preconnect</code> 到字体 CDN</div>
+            <div class="ci-meta">提前 DNS + TCP + TLS，约省 80ms；控制在 3~4 个关键域内。</div>
+          </div>
+        </label>
+        <label class="check-item gain">
+          <input type="checkbox" data-gain="120" checked>
+          <div class="ci-main">
+            <div class="ci-title"><code>preload</code> 关键字体（带 <code>crossorigin</code>）</div>
+            <div class="ci-meta">缩短 swap 窗口，约省 120ms；漏写 crossorigin 会下载两次。</div>
+          </div>
+        </label>
+        <label class="check-item gain">
+          <input type="checkbox" data-gain="180" checked>
+          <div class="ci-main">
+            <div class="ci-title"><code>preload</code> 首屏 LCP 图片</div>
+            <div class="ci-meta">让主图更早被发现，约省 180ms；不要给首屏图加 lazy。</div>
+          </div>
+        </label>
+        <label class="check-item gain">
+          <input type="checkbox" data-gain="60">
+          <div class="ci-main">
+            <div class="ci-title"><code>modulepreload</code> 启动模块</div>
+            <div class="ci-meta">预取并编译 ESM，约省 60ms；只对模块脚本有效。</div>
+          </div>
+        </label>
+        <label class="check-item">
+          <input type="checkbox" data-gain="0">
+          <div class="ci-main">
+            <div class="ci-title"><code>prefetch</code> 下一页资源</div>
+            <div class="ci-meta">对当前页首屏 0ms 收益，只影响下一次导航；移动端注意流量。</div>
+          </div>
+        </label>
+        <label class="check-item risk">
+          <input type="checkbox" data-gain="-220" id="badLazy">
+          <div class="ci-main">
+            <div class="ci-title">反例：首屏 LCP 图加 <code>loading="lazy"</code></div>
+            <div class="ci-meta">会让主图推迟到布局后才发现，首屏反而慢约 220ms。</div>
+          </div>
+        </label>
+      </div>
+      <div class="hint-summary" id="hintSummary"></div>
+    </section>
+
+    <!-- ============ 5. 白屏检测 ============ -->
+    <section class="card">
+      <h2>⑤ 白屏检测器：FCP + MutationObserver + 超时 + 错误兜底</h2>
+      <p class="sub" style="margin-bottom:6px">
+        左侧小视口用于“模拟白屏”；右侧日志同时记录当前页真实检测结果。
+        真实判定逻辑：3 秒内 FCP 缺失 + 有效 DOM 变化为 0 → 疑似白屏。
+      </p>
+      <div class="det-grid">
+        <div class="mini-viewport" id="miniViewport">
+          <div class="mv-content">
+            <h4>正常首屏内容</h4>
+            <div class="mv-line"></div>
+            <div class="mv-line"></div>
+            <div class="mv-line"></div>
+          </div>
+          <div class="mv-cover">模拟白屏中……</div>
+        </div>
+        <div class="detector-log" id="detectorLog" aria-live="polite"></div>
+      </div>
+      <div style="margin-top:8px">
+        <button class="btn" type="button" id="btnBlank">模拟白屏页面（1.2s）</button>
+        <button class="btn ghost" type="button" id="btnErr">模拟运行时异常</button>
+        <button class="btn ghost" type="button" id="btnDetReset">重置检测器日志</button>
+      </div>
+      <p class="sub" style="margin-top:8px" id="detectorState">检测器初始化中……</p>
+    </section>
+
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      /* ============================================================
+         公共工具
+         ============================================================ */
+      var toastEl = document.getElementById('toast');
+      var toastTimer = null;
+      function toast(msg) {
+        toastEl.textContent = msg;
+        toastEl.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 2400);
+      }
+
+      var timers = [];
+      function later(fn, ms) {
+        var id = setTimeout(fn, ms);
+        timers.push(id);
+        return id;
+      }
+      function clearTimers() {
+        timers.forEach(function (id) { clearTimeout(id); });
+        timers = [];
+      }
+
+      /* ============================================================
+         ① 关键路径时间线
+         ============================================================ */
+      var NAIVE = {
+        label: '朴素加载',
+        total: 1880,
+        firstPaint: 1580,
+        segments: [
+          { name: 'DNS', dur: 60, start: 0, cls: 'dns', blocking: true },
+          { name: 'TTFB', dur: 240, start: 60, cls: 'ttfb', blocking: true },
+          { name: 'HTML', dur: 120, start: 300, cls: 'html', blocking: true },
+          { name: 'CSS', dur: 420, start: 420, cls: 'css', blocking: true },
+          { name: '同步 JS', dur: 480, start: 840, cls: 'js', blocking: true },
+          { name: '字体', dur: 260, start: 1320, cls: 'font', blocking: true },
+          { name: '图片', dur: 300, start: 1580, cls: 'img', blocking: false }
+        ]
+      };
+
+      var FAST = {
+        label: '优化加载',
+        total: 570,
+        firstPaint: 400,
+        segments: [
+          { name: 'preconnect', dur: 30, start: 0, cls: 'dns', blocking: false },
+          { name: 'TTFB', dur: 120, start: 30, cls: 'ttfb', blocking: true },
+          { name: 'HTML', dur: 80, start: 150, cls: 'html', blocking: true },
+          { name: '关键 CSS', dur: 60, start: 230, cls: 'css', blocking: true },
+          { name: 'LCP 图', dur: 200, start: 290, cls: 'img', blocking: true },
+          { name: 'defer JS', dur: 90, start: 290, cls: 'js', blocking: false }
+        ]
+      };
+
+      var timelineEl = document.getElementById('timeline');
+      var playResult = document.getElementById('playResult');
+      var rafId = null;
+
+      function buildTrack(data) {
+        var segs = data.segments.map(function (s) {
+          var pct = (s.dur / data.total) * 100;
+          var label = pct > 9 ? '<span>' + s.name + '</span>' : '';
+          return '<div class="seg ' + s.cls + '" data-start="' + s.start +
+            '" data-dur="' + s.dur + '" style="width:' + pct + '%">' + label + '</div>';
+        }).join('');
+        var fpPct = (data.firstPaint / data.total) * 100;
+        return '<div class="tl-track" data-track>' + segs +
+          '<div class="fp-marker" data-fp style="left:' + fpPct + '%">' +
+          '<span class="fp-label">首屏 ' + data.firstPaint + 'ms</span></div>' +
+          '<div class="playhead" data-playhead></div></div>';
+      }
+
+      function renderTimelineShell() {
+        timelineEl.innerHTML =
+          '<div class="tl-row" data-row="naive">' +
+          '<div class="tl-head"><span>' + NAIVE.label + '</span>' +
+          '<span class="tag">首屏 ' + NAIVE.firstPaint + 'ms</span>' +
+          '<span class="tag">总 ' + NAIVE.total + 'ms</span></div>' +
+          buildTrack(NAIVE) + '</div>' +
+          '<div class="tl-row" data-row="fast">' +
+          '<div class="tl-head"><span>' + FAST.label + '</span>' +
+          '<span class="tag good">首屏 ' + FAST.firstPaint + 'ms</span>' +
+          '<span class="tag">总 ' + FAST.total + 'ms</span></div>' +
+          buildTrack(FAST) + '</div>';
+      }
+
+      function resetTimelineVisuals() {
+        timelineEl.querySelectorAll('.seg').forEach(function (el) {
+          el.classList.remove('active');
+        });
+        timelineEl.querySelectorAll('[data-playhead]').forEach(function (el) {
+          el.style.left = '0%';
+        });
+      }
+
+      function updateRows(elapsed) {
+        [['naive', NAIVE], ['fast', FAST]].forEach(function (pair) {
+          var row = timelineEl.querySelector('[data-row="' + pair[0] + '"]');
+          if (!row) return;
+          var data = pair[1];
+          row.querySelectorAll('.seg').forEach(function (seg) {
+            var start = Number(seg.dataset.start);
+            var dur = Number(seg.dataset.dur);
+            if (elapsed >= start && elapsed < start + dur + 1) {
+              seg.classList.add('active');
+            } else if (elapsed >= start + dur) {
+              seg.classList.add('active');
+            }
+          });
+          var head = row.querySelector('[data-playhead]');
+          if (head) head.style.left = Math.min(elapsed / data.total, 1) * 100 + '%';
+        });
+      }
+
+      function playTimeline() {
+        if (rafId) cancelAnimationFrame(rafId);
+        clearTimers();
+        resetTimelineVisuals();
+        var t0 = performance.now();
+        var naiveHit = false, fastHit = false;
+
+        function frame(now) {
+          var elapsed = now - t0;
+          updateRows(elapsed);
+
+          if (!fastHit && elapsed >= FAST.firstPaint) {
+            fastHit = true;
+            playResult.innerHTML = '优化方案已出现首屏（约 <strong>' +
+              FAST.firstPaint + 'ms</strong>），朴素方案还在阻塞中……';
+          }
+          if (!naiveHit && elapsed >= NAIVE.firstPaint) {
+            naiveHit = true;
+            var saved = NAIVE.firstPaint - FAST.firstPaint;
+            playResult.innerHTML = '朴素方案首屏约 <strong>' + NAIVE.firstPaint +
+              'ms</strong>，优化方案约 <strong>' + FAST.firstPaint +
+              'ms</strong>，缩短 <strong>' + saved + 'ms（约 ' +
+              Math.round(saved / NAIVE.firstPaint * 100) + '%）</strong>。' +
+              '收益来自：关键 CSS 内联、同步 JS 改 defer、字体 swap、LCP 图提前。';
+            toast('对比完成：优化方案首屏约 400ms');
+          }
+          if (elapsed < NAIVE.total) {
+            rafId = requestAnimationFrame(frame);
+          } else {
+            rafId = null;
+            updateRows(NAIVE.total);
+            playResult.innerHTML += ' <span class="tag good">播放结束</span>';
+          }
+        }
+        rafId = requestAnimationFrame(frame);
+      }
+
+      document.getElementById('btnPlay').addEventListener('click', playTimeline);
+
+      /* ============================================================
+         ② 骨架屏
+         ============================================================ */
+      var preview = document.getElementById('preview');
+      var skelNote = document.getElementById('skelNote');
+      var skelOn = false;
+
+      document.getElementById('btnSkeleton').addEventListener('click', function () {
+        skelOn = !skelOn;
+        preview.classList.toggle('skel', skelOn);
+        skelNote.textContent = skelOn
+          ? '当前：骨架屏。占位块与真实内容同高同宽，数据到达时只做“填充”，不再撑开布局。'
+          : '当前：真实内容。点击按钮后替换为骨架占位，注意占位块与真实内容的位置关系。';
+        toast(skelOn ? '已切换到骨架屏（仅感知优化）' : '已切回真实内容');
+      });
+
+      /* ============================================================
+         ③ 字体行为
+         ============================================================ */
+      var fontA = document.getElementById('fontA');
+      var fontB = document.getElementById('fontB');
+      var fontC = document.getElementById('fontC');
+      var fontAStatus = document.getElementById('fontAStatus');
+      var fontBStatus = document.getElementById('fontBStatus');
+      var fontCStatus = document.getElementById('fontCStatus');
+
+      function resetFonts() {
+        [fontA, fontB, fontC].forEach(function (el) {
+          el.classList.remove('brand', 'hidden');
+        });
+        fontAStatus.textContent = '等待播放：block 期文字不可见。';
+        fontBStatus.textContent = '等待播放：先显示回退字体。';
+        fontCStatus.textContent = '等待播放：字体提前到达，替换更快。';
+      }
+
+      function playFonts() {
+        clearTimers();
+        resetFonts();
+
+        /* A：FOIT —— 2.4s 内文字不可见，字体到达后一次性出现 */
+        fontA.classList.add('hidden');
+        fontAStatus.textContent = 'block 期：文字完全不可见（用户看到空白）。';
+        later(function () {
+          fontA.classList.remove('hidden');
+          fontA.classList.add('brand');
+          fontAStatus.textContent = '2.4s：Web 字体到达，文字突然出现并换成品牌字体。';
+          toast('FOIT：文字静默 2.4s 后突然出现');
+        }, 2400);
+
+        /* B：FOUT —— 回退字体立即可读，2.4s 后替换 */
+        fontBStatus.textContent = 'swap 期：回退字体立即可读（FOUT）。';
+        later(function () {
+          fontB.classList.add('brand');
+          fontBStatus.textContent = '2.4s：Web 字体到达，字体与字宽发生变化（可能引起 CLS）。';
+        }, 2400);
+
+        /* C：swap + preload —— 0.6s 就替换 */
+        later(function () {
+          fontC.classList.add('brand');
+          fontCStatus.textContent = '0.6s：preload 让字体提前到达，swap 窗口大幅缩短。';
+        }, 600);
+      }
+
+      document.getElementById('btnFont').addEventListener('click', playFonts);
+
+      /* ============================================================
+         ④ 资源提示清单
+         ============================================================ */
+      var hintSummary = document.getElementById('hintSummary');
+      var checkList = document.getElementById('checkList');
+
+      function updateHints() {
+        var total = 0;
+        var checked = 0;
+        checkList.querySelectorAll('input[type="checkbox"]').forEach(function (box) {
+          if (!box.checked) return;
+          checked++;
+          total += Number(box.dataset.gain || 0);
+        });
+        var bad = document.getElementById('badLazy').checked;
+        var text = '已勾选 <strong>' + checked + '</strong> 项，教学估算首屏收益约 <strong>' +
+          total + 'ms</strong>（可能为负）。';
+        text += '　提示：<code>preload</code> 必须只用于当前页确定要用的资源；' +
+          '字体 preload 必须带 <code>crossorigin</code>；<code>preconnect</code> 控制在 3~4 个关键域。';
+        if (bad) {
+          text += ' <span style="color:var(--poor)">⚠️ 你勾选了“首屏 LCP 图加 lazy”的反例，' +
+            '这会把主图推迟到布局后才发现。</span>';
+        }
+        if (total > 400) {
+          text += ' <span style="color:var(--warn)">收益估算偏高，真实项目请以实测为准。</span>';
+        }
+        hintSummary.innerHTML = text;
+      }
+
+      checkList.addEventListener('change', updateHints);
+
+      /* ============================================================
+         ⑤ 白屏检测器
+         ============================================================ */
+      var detectorLog = document.getElementById('detectorLog');
+      var detectorState = document.getElementById('detectorState');
+      var miniViewport = document.getElementById('miniViewport');
+
+      function detLog(msg, cls) {
+        var t = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+        var line = document.createElement('div');
+        line.textContent = '[' + t + '] ' + msg;
+        if (cls) line.className = cls;
+        detectorLog.appendChild(line);
+        detectorLog.scrollTop = detectorLog.scrollHeight;
+      }
+
+      var det = {
+        fcp: null,
+        mutations: 0,
+        finished: false,
+        startedAt: performance.now(),
+        ignoreBefore: 0
+      };
+
+      /* FCP */
+      if (window.PerformanceObserver &&
+        PerformanceObserver.supportedEntryTypes &&
+        PerformanceObserver.supportedEntryTypes.indexOf('paint') !== -1) {
+        try {
+          new PerformanceObserver(function (list) {
+            list.getEntries().forEach(function (e) {
+              if (e.name === 'first-contentful-paint') {
+                det.fcp = e.startTime;
+                detLog('FCP 采集：' + Math.round(e.startTime) + 'ms');
+                updateDetState();
+              }
+            });
+          }).observe({ type: 'paint', buffered: true });
+        } catch (err) {
+          detLog('paint 观察器失败：' + err.message, 'warn');
+        }
+      } else {
+        detLog('当前浏览器不支持 paint 条目，白屏判定退化为纯超时', 'warn');
+      }
+
+      /* 有效 DOM 变化（排除日志与 toast 自身的写入） */
+      var mo = new MutationObserver(function (records) {
+        records.forEach(function (r) {
+          if (r.type !== 'childList' || !r.addedNodes.length) return;
+          var meaningful = Array.prototype.some.call(r.addedNodes, function (n) {
+            if (n.nodeType !== 1) return false;
+            if (n.closest && (n.closest('#detectorLog') || n.closest('#toast'))) return false;
+            if (n.matches && n.matches('.skeleton, .skel, .spinner')) return false;
+            return true;
+          });
+          if (meaningful) det.mutations++;
+        });
+      });
+      mo.observe(document.documentElement, { subtree: true, childList: true, characterData: true });
+
+      function updateDetState() {
+        detectorState.textContent = '真实检测：FCP=' +
+          (det.fcp === null ? '未捕获' : Math.round(det.fcp) + 'ms') +
+          '，有效 DOM 变化=' + det.mutations + ' 次，' +
+          '已运行 ' + Math.round(performance.now() - det.startedAt) + 'ms。';
+      }
+
+      function reportBlank(type, detail) {
+        if (det.finished) return;
+        det.finished = true;
+        var payload = {
+          type: type,
+          detail: detail,
+          fcp: det.fcp === null ? null : Math.round(det.fcp),
+          mutations: det.mutations,
+          elapsed: Math.round(performance.now() - det.startedAt),
+          page: location.pathname || 'file://',
+          release: 'first-screen-lab'
+        };
+        detLog('判定：' + (type === 'blank-screen' ? '疑似白屏' : '运行时异常兜底') +
+          ' → ' + detail, 'err');
+        detLog('上报 payload（仅预览）：' + JSON.stringify(payload));
+        detLog('（真实项目此处调用 navigator.sendBeacon("/rum-blank", ...)）', 'warn');
+      }
+
+      function handleError(message) {
+        detLog('error / unhandledrejection：' + message, 'err');
+        reportBlank('error', message);
+      }
+
+      /* 3 秒超时判定 */
+      later(function () {
+        if (det.finished) return;
+        var blank = (det.fcp === null || det.fcp > 3000) &&
+          det.mutations === 0 &&
+          !document.querySelector('.wrap')?.innerText.trim();
+        if (blank) {
+          reportBlank('blank-screen', 'no-fcp-and-no-content');
+        } else {
+          det.finished = true;
+          detLog('3s 判定：非白屏（FCP=' +
+            (det.fcp === null ? '缺失' : Math.round(det.fcp) + 'ms') +
+            '，有效变化=' + det.mutations + '）');
+          detectorState.textContent = '真实检测完成：未发现白屏。可点击左侧按钮模拟白屏场景。';
+        }
+        updateDetState();
+      }, 3000);
+
+      /* 全局错误兜底（真实错误 + 手动模拟都会走这里） */
+      window.addEventListener('error', function (e) {
+        handleError(e.message);
+      }, true);
+      window.addEventListener('unhandledrejection', function (e) {
+        handleError(String(e.reason));
+      });
+
+      /* —— 模拟白屏：只让左侧小视口短暂变白，然后恢复 —— */
+      var blankRunning = false;
+      document.getElementById('btnBlank').addEventListener('click', function () {
+        if (blankRunning) {
+          toast('模拟白屏正在进行中，请稍候');
+          return;
+        }
+        blankRunning = true;
+        miniViewport.classList.add('blank');
+        detLog('模拟白屏：小视口进入空白状态，开始 1.2s 倒计时', 'warn');
+
+        later(function () {
+          detLog('模拟判定：FCP=缺失，有效 DOM 变化=0，超过阈值 → 疑似白屏', 'err');
+          detLog('上报 payload（仅预览）：' + JSON.stringify({
+            type: 'blank-screen',
+            detail: 'no-fcp-and-no-content',
+            fcp: null,
+            mutations: 0,
+            elapsed: 1200,
+            page: '/demo/blank',
+            release: 'first-screen-lab'
+          }));
+          miniViewport.classList.remove('blank');
+          blankRunning = false;
+          detLog('小视口已恢复（真实白屏需要产品侧兜底 UI）', 'warn');
+          toast('模拟白屏结束：日志展示了判定与上报结构');
+        }, 1200);
+      });
+
+      /* —— 模拟运行时异常：try/catch 后走错误兜底 —— */
+      document.getElementById('btnErr').addEventListener('click', function () {
+        try {
+          throw new Error('模拟渲染异常：Cannot read properties of undefined (reading "title")');
+        } catch (err) {
+          handleError(err.message);
+        }
+        toast('已模拟运行时异常，页面仍可操作');
+      });
+
+      /* —— 重置检测器日志（真实 FCP 不可重置，只清空展示） —— */
+      document.getElementById('btnDetReset').addEventListener('click', function () {
+        detectorLog.textContent = '';
+        det.mutations = 0;
+        det.ignoreBefore = performance.now();
+        detLog('日志已清空；真实 FCP 与历史检测结果不会被“重置”（指标是历史事实）', 'warn');
+        updateDetState();
+        toast('检测器日志已清空');
+      });
+
+      /* ============================================================
+         一键重置
+         ============================================================ */
+      document.getElementById('btnResetAll').addEventListener('click', function () {
+        if (rafId) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        clearTimers();
+        resetTimelineVisuals();
+        updateRows(0);
+        playResult.textContent = '等待播放。朴素方案首屏约 1580ms，优化方案约 400ms。';
+
+        skelOn = false;
+        preview.classList.remove('skel');
+        skelNote.textContent = '当前：真实内容。点击按钮后替换为骨架占位，注意占位块与真实内容的位置关系。';
+
+        resetFonts();
+
+        checkList.querySelectorAll('input[type="checkbox"]').forEach(function (box) {
+          box.checked = box.id !== 'badLazy' && Number(box.dataset.gain) > 0 &&
+            box.parentElement.classList.contains('gain');
+        });
+        // 保持前三项默认勾选，其余取消
+        var boxes = checkList.querySelectorAll('input[type="checkbox"]');
+        boxes.forEach(function (box, i) {
+          box.checked = i < 3;
+        });
+        updateHints();
+
+        miniViewport.classList.remove('blank');
+        blankRunning = false;
+        detLog('已执行一键重置：时间线、骨架屏、字体演示与清单恢复初始状态', 'warn');
+        detectorState.textContent = '真实检测仍在进行（FCP 是历史事实，无法重置）。';
+        toast('已重置所有演示状态');
+      });
+
+      /* ============================================================
+         初始化
+         ============================================================ */
+      renderTimelineShell();
+      updateRows(0);
+      resetFonts();
+      updateHints();
+      updateDetState();
+      detLog('检测器启动：监听 FCP / DOM 变化 / error / unhandledrejection');
+      detLog('3 秒后将做一次真实判定（当前页有内容，预期非白屏）');
+    })();
+  </script>
+</body>
+
+</html>

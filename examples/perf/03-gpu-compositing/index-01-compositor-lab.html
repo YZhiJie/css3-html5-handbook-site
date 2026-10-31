@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 03：合成器实验室（GPU 合成层 · 层预算 · 绘制成本）
+  ------------------------------------------------------------
+  【知识点】
+    1. 渲染流水线 Style → Layout → Paint → Composite 的直观对照
+    2. left/width 动画（Layout + Paint）vs transform 动画（Composite）
+    3. 真实 rAF 帧率表与掉帧计数（不是凭感觉说"卡"）
+    4. 合成层开关：will-change: transform / translateZ(0)
+    5. 层检查器：模拟层数、单层尺寸、按 宽×高×DPR²×4 估算显存
+    6. 层爆炸：给 60 张卡片全部加 will-change，观察显存预算被吃光
+    7. backdrop-filter / filter: blur / mix-blend-mode 的绘制成本对比
+    8. DevTools Layers / Rendering 面板操作指引
+  【运行方式】
+    纯单文件、零网络零 CDN、零外部图片/字体，双击 file:// 即可运行。
+  【效果说明】
+    区块 ①：两条并排赛道，A 动 left+width（每帧布局），B 动 transform
+    （只走合成器）。点击「同时开跑」或单独开跑，观察各自的 FPS 与掉帧。
+    区块 ②：两个开关分别给演示卡加 will-change / translateZ(0)，右侧层
+    检查器实时显示模拟层数、纹理尺寸与估算显存；「60 卡层爆炸」一键让
+    60 张卡片全部成层，「一键清理」全部回收。
+    区块 ③：移动光斑 + 玻璃面板，切换「无模糊 / backdrop-filter /
+    filter: blur / mix-blend-mode」，用同一套 FPS 表对比绘制成本。
+    区块 ④：DevTools 操作指引（Layer borders / Paint flashing /
+    Frame Rendering Stats / Layers 面板）。
+  【注意事项】
+    1. 层检查器是"按元素尺寸 + DPR 模拟估算"，真实层划分由浏览器决定，
+       请以 DevTools Layers 面板为准；数值只用于建立数量级直觉。
+    2. 层爆炸演示固定 60 张卡、不会无限叠加；一键清理可随时回收。
+    3. 动画期间所有按钮均可点击；重任务没有死循环，不存在页面锁死。
+    4. 高 DPR 屏幕上估算显存会成倍增长，这是真实预算的体现，不是 Bug。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 03 · 合成器实验室</title>
+<style>
+  :root {
+    --brand: #4361ee;
+    --accent: #f72585;
+    --ok: #06d6a0;
+    --warn: #ff9f1c;
+    --danger: #e63946;
+    --ink: #232c3d;
+    --muted: #7c8aa0;
+    --line: #e3e8f1;
+    --bg: #f4f6fb;
+    --card: #fff;
+    --mono: ui-monospace, "SF Mono", Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.65;
+    padding: 22px;
+  }
+
+  h1 { font-size: 1.45rem; }
+  .sub { color: var(--muted); font-size: .88rem; margin: 4px 0 16px; }
+
+  section {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px;
+    margin: 0 auto 16px;
+    max-width: 1100px;
+  }
+
+  h2 { font-size: 1.06rem; margin-bottom: 4px; }
+  h3 { font-size: .92rem; margin: 12px 0 8px; }
+
+  .tip {
+    font-size: .82rem;
+    color: var(--muted);
+    background: #f1f5ff;
+    border-left: 3px solid var(--brand);
+    padding: 7px 11px;
+    margin: 8px 0 14px;
+    border-radius: 0 6px 6px 0;
+  }
+
+  code {
+    background: #eef1f8;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: .82em;
+    font-family: var(--mono);
+  }
+
+  button {
+    padding: 8px 14px;
+    border: 0;
+    border-radius: 8px;
+    cursor: pointer;
+    background: var(--brand);
+    color: #fff;
+    font-size: .82rem;
+    transition: filter .15s ease, transform .15s ease;
+  }
+  button:hover { filter: brightness(1.08); }
+  button:active { transform: scale(0.97); }
+  button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  button.ok { background: var(--ok); }
+  button.danger { background: var(--danger); }
+  button.warn { background: var(--warn); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; }
+
+  /* ================= ① 流水线示意 ================= */
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+  }
+  .stage {
+    flex: 1 1 150px;
+    min-width: 140px;
+    background: #fbfcff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    text-align: center;
+    font-size: .8rem;
+  }
+  .stage b { display: block; font-size: .88rem; color: var(--brand); }
+  .stage.composite { border-color: #bfe9dc; background: #f0fdf8; }
+  .stage.composite b { color: var(--ok); }
+  .stage.main { border-color: #ffd8a8; background: #fffaf0; }
+  .stage.main b { color: var(--warn); }
+  .arrow { color: var(--muted); font-size: 1.1rem; }
+  .stage-note { font-size: .76rem; color: var(--muted); margin-top: 4px; }
+
+  /* ================= ② 双赛道 ================= */
+  .race-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .lane {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px;
+    background: #fbfcff;
+  }
+  .lane h3 { margin: 0 0 2px; }
+  .lane .badge { font-size: .72rem; border-radius: 999px; padding: 2px 8px; color: #fff; }
+  .lane .badge.layout { background: var(--warn); }
+  .lane .badge.comp { background: var(--ok); }
+  .track {
+    position: relative;
+    height: 58px;
+    margin: 10px 0;
+    border-radius: 9px;
+    overflow: hidden;
+    background: repeating-linear-gradient(90deg, #eff3fb 0 26px, #e5ebf7 26px 27px);
+  }
+  .runner {
+    position: absolute;
+    top: 10px;
+    left: 0;
+    width: 56px;
+    height: 38px;
+    border-radius: 9px;
+    box-shadow: 0 4px 12px rgba(35, 44, 61, .18);
+  }
+  /* 反面：left + width 都属于 Layout 属性，每帧重排 + 重绘 */
+  .runner-a {
+    background: linear-gradient(135deg, #ffb703, #ff7a00);
+    transition: left 2.2s linear, width 2.2s linear;
+  }
+  /* 正面：transform 只改合成矩阵，不经过 Layout / Paint */
+  .runner-b {
+    background: linear-gradient(135deg, #06d6a0, #00a896);
+    transform-origin: left center;
+    transition: transform 2.2s linear;
+  }
+  .meter {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: .8rem;
+    color: var(--muted);
+  }
+  .meter b { font-size: 1.08rem; color: var(--ink); }
+  .meter .drop { color: var(--danger); }
+
+  /* ================= ③ 层检查器 ================= */
+  .layer-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .demo-card {
+    width: 100%;
+    max-width: 300px;
+    height: 132px;
+    border-radius: 12px;
+    padding: 12px;
+    color: #fff;
+    font-size: .8rem;
+    background: linear-gradient(135deg, #4361ee, #7b2ff7);
+    box-shadow: 0 10px 26px rgba(67, 97, 238, .3);
+    transition: transform .35s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .demo-card .big { font-size: 1.5rem; font-weight: 700; }
+  .demo-card.lifted { will-change: transform; transform: translateY(-6px) scale(1.02); }
+  .demo-card.zlift {
+    transform: translateZ(0) translateY(-6px);
+    outline: 2px dashed var(--accent);
+    outline-offset: 4px;
+  }
+  .layer-panel {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px;
+    background: #0f172a;
+    color: #cbd5e1;
+    font-family: var(--mono);
+    font-size: .76rem;
+    min-height: 180px;
+  }
+  .layer-panel .sum {
+    display: flex;
+    justify-content: space-between;
+    color: #fff;
+    font-size: .85rem;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed #334155;
+  }
+  .layer-panel .sum b { color: var(--ok); }
+  .layer-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 8px;
+    padding: 3px 0;
+    color: #94a3b8;
+  }
+  .layer-row .mem { color: #fbbf24; }
+  .layer-empty { color: #64748b; padding: 10px 0; }
+  .mini-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .mini-card {
+    height: 50px;
+    border-radius: 7px;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    font-size: .68rem;
+    background: linear-gradient(135deg, #8ecae6, #219ebc);
+    transition: transform .2s ease;
+  }
+  .mini-card.layer-on {
+    will-change: transform;
+    outline: 1.5px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .mini-card.layer-on::after { content: "L"; font-weight: 700; }
+
+  /* ================= ④ 模糊成本 ================= */
+  .blur-stage {
+    position: relative;
+    height: 230px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #10192b;
+  }
+  .orb {
+    position: absolute;
+    width: 220px;
+    height: 220px;
+    left: 0;
+    top: 10px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #ff006e, #8338ec 45%, #3a86ff 75%, transparent 78%);
+    filter: blur(14px);
+    animation: orb-move 3.2s linear infinite alternate paused;
+  }
+  .orb.running { animation-play-state: running; }
+  @keyframes orb-move {
+    from { transform: translateX(-30px) scale(1); }
+    to { transform: translateX(520px) scale(1.25); }
+  }
+  .glass-panel {
+    position: absolute;
+    inset: 30px 36px;
+    border-radius: 12px;
+    padding: 14px;
+    color: #fff;
+    background: rgba(255, 255, 255, .22);
+    border: 1px solid rgba(255, 255, 255, .35);
+    transition: filter .2s ease;
+  }
+  .glass-panel h3 { margin: 0 0 4px; font-size: .95rem; }
+  .glass-panel p { font-size: .78rem; opacity: .9; }
+  /* 三种高成本模式：分别演示 backdrop 采样、离屏卷积、背景混合 */
+  .blur-stage.mode-backdrop .glass-panel { backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+  .blur-stage.mode-filter .glass-panel { filter: blur(14px); }
+  .blur-stage.mode-blend .glass-panel { mix-blend-mode: overlay; isolation: isolate; }
+  .mode-pills { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+  .pill {
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+    font-size: .78rem;
+  }
+  .pill.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+
+  /* ================= ⑤ DevTools 指引 ================= */
+  .devtools-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 12px;
+  }
+  .dt-card {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    background: #fbfcff;
+    font-size: .8rem;
+  }
+  .dt-card b { display: block; color: var(--brand); margin-bottom: 4px; }
+  .dt-card ul { padding-left: 16px; color: var(--muted); }
+  .dt-card li { margin: 2px 0; }
+
+  /* ================= 日志 / Toast ================= */
+  .log-box {
+    max-width: 1100px;
+    margin: 0 auto 30px;
+    background: #0f172a;
+    color: #cbd5e1;
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-family: var(--mono);
+    font-size: .76rem;
+    max-height: 190px;
+    overflow: auto;
+  }
+  .log-box .line { padding: 2px 0; border-bottom: 1px solid rgba(148, 163, 184, .08); }
+  .log-box .t { color: #64748b; margin-right: 8px; }
+  .toast {
+    position: fixed;
+    right: 18px;
+    top: 18px;
+    z-index: 99;
+    background: #0f172a;
+    color: #fff;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: .8rem;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, .25);
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: opacity .2s ease, transform .2s ease;
+    pointer-events: none;
+    max-width: 320px;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+
+  @media (max-width: 760px) {
+    body { padding: 12px; }
+    .race-grid, .layer-controls { grid-template-columns: 1fr; }
+    section { padding: 14px; }
+    .pipeline .arrow { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<h1>合成器实验室：层是预算</h1>
+<p class="sub">同一个位移，走 Layout 还是走 Composite？给元素加层，是加速还是烧显存？用真实的 rAF 帧率表与层检查器把账算清楚。</p>
+
+<!-- ① 流水线与双赛道 -->
+<section>
+  <h2>① 一帧的四步 & 双赛道对照</h2>
+  <div class="tip">
+    前 3 步 Style / Layout / Paint 都在主线程；只有 Composite 可以交给合成器线程与 GPU。
+    <b>改 left/width</b> 每帧都要重排重绘；<b>改 transform</b> 只更新合成矩阵，主线程再忙也照转。
+  </div>
+  <div class="pipeline">
+    <div class="stage main"><b>Style</b>样式计算</div><span class="arrow">→</span>
+    <div class="stage main"><b>Layout</b>位置与尺寸</div><span class="arrow">→</span>
+    <div class="stage main"><b>Paint</b>像素绘制</div><span class="arrow">→</span>
+    <div class="stage composite"><b>Composite</b>合成器线程 / GPU</div>
+  </div>
+
+  <h3 style="margin-top:16px">同时开跑：left + width vs transform</h3>
+  <div class="btn-row" style="margin-bottom:10px">
+    <button id="raceBoth">▶ 两条赛道同时开跑</button>
+    <button class="ghost" id="raceReset">↩ 归位</button>
+    <span style="font-size:.78rem;color:var(--muted)">基线刷新间隔：<b id="refreshOut">测量中…</b></span>
+  </div>
+  <div class="race-grid">
+    <div class="lane">
+      <h3>赛道 A <span class="badge layout">Layout + Paint</span></h3>
+      <div style="font-size:.76rem;color:var(--muted)">left 与 width 每帧都触发重排</div>
+      <div class="track"><div class="runner runner-a" id="runnerA"></div></div>
+      <div class="meter">FPS <b id="fpsA">--</b> · 掉帧 <b class="drop" id="dropA">0</b></div>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="warn" data-lane="A">跑 A</button>
+      </div>
+    </div>
+    <div class="lane">
+      <h3>赛道 B <span class="badge comp">Composite</span></h3>
+      <div style="font-size:.76rem;color:var(--muted)">transform 只更新合成层矩阵</div>
+      <div class="track"><div class="runner runner-b" id="runnerB"></div></div>
+      <div class="meter">FPS <b id="fpsB">--</b> · 掉帧 <b class="drop" id="dropB">0</b></div>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="ok" data-lane="B">跑 B</button>
+      </div>
+    </div>
+  </div>
+  <div class="tip" style="margin-bottom:0">
+    提示：打开 DevTools → Performance 录制，橙色赛道每帧会出现紫色 Layout 条；绿色赛道只有 Composite。
+    FPS 表由 rAF 实测，掉帧按"实际帧间隔 / 基线刷新间隔"计数，不同屏幕刷新率下基线会自动测量。
+  </div>
+</section>
+
+<!-- ② 合成层开关与层检查器 -->
+<section>
+  <h2>② 合成层开关 + 层检查器（模拟显存账本）</h2>
+  <div class="tip">
+    <b>will-change: transform</b> 是"提前告知浏览器我要动"；<b>translateZ(0)</b> 是祖传的强制 3D 提示。
+    两者都可能让元素独立成层。右侧按 <code>宽×高×DPR²×4 字节</code> 估算每层纹理显存——
+    注意这还只是下界，真实层还有对齐、分块与额外缓冲。
+  </div>
+  <div class="layer-controls">
+    <div>
+      <div class="btn-row">
+        <button id="toggleWill">切换 will-change（演示卡 A）</button>
+        <button id="toggleZ" class="ghost">切换 translateZ(0)（演示卡 B）</button>
+      </div>
+      <div class="btn-row" style="margin-top:10px">
+        <div class="demo-card" id="promoWill">
+          <div class="big">Card A</div>
+          <div>will-change: transform</div>
+          <div style="opacity:.8;margin-top:4px">提升后动画只走合成器</div>
+        </div>
+        <div class="demo-card" id="promoZ" style="background:linear-gradient(135deg,#f72585,#b5179e)">
+          <div class="big">Card B</div>
+          <div>transform: translateZ(0)</div>
+          <div style="opacity:.8;margin-top:4px">老写法，强制 3D 层</div>
+        </div>
+      </div>
+
+      <h3>层爆炸：给 60 张卡片全部加 will-change</h3>
+      <div class="btn-row">
+        <button class="danger" id="explodeBtn">💥 全部加 will-change（60 层）</button>
+        <button class="ok" id="cleanBtn">🧹 一键清理</button>
+      </div>
+      <div class="mini-grid" id="miniGrid"></div>
+    </div>
+
+    <div>
+      <h3 style="margin-top:0">层检查器（模拟）</h3>
+      <div class="layer-panel" id="layerPanel">
+        <div class="sum"><span>层数 <b id="layerCount">1</b></span><span>估算显存 <b id="layerMem">--</b></span></div>
+        <div id="layerRows"><div class="layer-empty">当前只有根层。打开左侧开关，或点击"层爆炸"。</div></div>
+      </div>
+      <div class="tip" style="margin-bottom:0">
+        DPR：<code id="dprOut">--</code>。层检查器只是"按尺寸模拟"的估算器：
+        浏览器实际是否成层、是否合并、是否分块，请用 DevTools → Layers 面板验证。
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ③ 模糊成本 -->
+<section>
+  <h2>③ 绘制成本：backdrop-filter / filter: blur / mix-blend-mode</h2>
+  <div class="tip">
+    <code>filter</code> 把元素画进离屏缓冲再做卷积；<code>backdrop-filter</code> 还要读取"背后已经画好的内容"，
+    背景一动就每帧重算；<code>mix-blend-mode</code> 需要背景像素参与混合。光斑在动时切换模式，看 FPS 与掉帧。
+  </div>
+  <div class="blur-stage" id="blurStage">
+    <div class="orb" id="orb"></div>
+    <div class="glass-panel" id="glassPanel">
+      <h3>玻璃拟态面板</h3>
+      <p>背景光斑持续移动。切到 backdrop-filter 后，这一层每帧都要重新采样并模糊背景。</p>
+      <p style="margin-top:8px;font-size:.72rem">观察下方 FPS 表与掉帧计数。</p>
+    </div>
+  </div>
+  <div class="mode-pills" id="modePills">
+    <button class="pill active" data-mode="none">无模糊</button>
+    <button class="pill" data-mode="backdrop">backdrop-filter: blur(18px)</button>
+    <button class="pill" data-mode="filter">filter: blur(14px)</button>
+    <button class="pill" data-mode="blend">mix-blend-mode: overlay</button>
+  </div>
+  <div class="btn-row">
+    <button id="orbToggle">▶ 启动背景光斑</button>
+    <button class="ghost" id="blurMeasure">开始测量 4 秒</button>
+    <div class="meter" style="margin-left:auto">FPS <b id="fpsBlur">--</b> · 掉帧 <b class="drop" id="dropBlur">0</b></div>
+  </div>
+</section>
+
+<!-- ④ DevTools 指引 -->
+<section>
+  <h2>④ DevTools 操作指引（把"看不见的层"量出来）</h2>
+  <div class="devtools-grid">
+    <div class="dt-card">
+      <b>Layers 面板</b>
+      <ul>
+        <li>More tools → Layers</li>
+        <li>查看层树、层尺寸、内存估算</li>
+        <li>"Why this layer?" 显示成层原因</li>
+        <li>点击层可在页面高亮</li>
+      </ul>
+    </div>
+    <div class="dt-card">
+      <b>Rendering 面板</b>
+      <ul>
+        <li>Layer borders：给每个合成层画框</li>
+        <li>Paint flashing：绿色闪烁 = 发生重绘</li>
+        <li>Frame Rendering Stats：实时 FPS / GPU 内存</li>
+        <li>CPU Throttling：4×/6× 模拟低端机</li>
+      </ul>
+    </div>
+    <div class="dt-card">
+      <b>Performance 面板</b>
+      <ul>
+        <li>录制一次动画，看是否有 Layout / Paint 条</li>
+        <li>只有 Composite 说明已交给合成器</li>
+        <li>对比"开销"与"帧率"，别只看平均 FPS</li>
+      </ul>
+    </div>
+    <div class="dt-card">
+      <b>本示例配套操作</b>
+      <ul>
+        <li>开 60 卡层爆炸 → 看 Layer borders 的框</li>
+        <li>切换 backdrop → 看 Paint flashing</li>
+        <li>"一键清理" → 层数回落、显存释放</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<div class="log-box" id="logBox"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+
+  /* ---------------- 公共：日志 / Toast ---------------- */
+  const logBox = $('logBox');
+  function log(msg, kind) {
+    const colors = { ok: '#6ee7b7', warn: '#fbbf24', danger: '#fca5a5', info: '#93c5fd' };
+    const line = document.createElement('div');
+    line.className = 'line';
+    const t = new Date();
+    const hh = String(t.getHours()).padStart(2, '0');
+    const mm = String(t.getMinutes()).padStart(2, '0');
+    const ss = String(t.getSeconds()).padStart(2, '0');
+    line.innerHTML = '<span class="t">' + hh + ':' + mm + ':' + ss + '</span>' +
+      '<span style="color:' + (colors[kind] || '#cbd5e1') + '">' + msg + '</span>';
+    logBox.prepend(line);
+    while (logBox.children.length > 60) logBox.lastElementChild.remove();
+  }
+
+  let toastTimer = 0;
+  function toast(msg) {
+    const el = $('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+  }
+
+  /* ---------------- 刷新基线：用 rAF 实测屏幕刷新间隔 ---------------- */
+  let refreshMs = 16.67;
+  (function measureRefresh() {
+    const samples = [];
+    let last = 0;
+    let n = 0;
+    function tick(ts) {
+      if (last) samples.push(ts - last);
+      last = ts;
+      if (++n < 70) {
+        requestAnimationFrame(tick);
+        return;
+      }
+      const sorted = samples.slice().sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)] || 16.67;
+      refreshMs = Math.min(34, Math.max(4, median));
+      $('refreshOut').textContent = refreshMs.toFixed(2) + 'ms（约 ' +
+        Math.round(1000 / refreshMs) + 'Hz）';
+    }
+    requestAnimationFrame(tick);
+  })();
+
+  /* ---------------- rAF 帧率表 ---------------- */
+  function createMeter(fpsEl, dropEl, label) {
+    let rafId = 0;
+    let active = false;
+    let frames = 0;
+    let drops = 0;
+    let lastTs = 0;
+    let windowStart = 0;
+
+    function tick(ts) {
+      if (!active) return;
+      if (!lastTs) { lastTs = ts; windowStart = ts; }
+      const delta = ts - lastTs;
+      lastTs = ts;
+      frames++;
+
+      // 超过基线 1.5 倍视为掉帧；按间隔折算丢失的帧数
+      if (delta > refreshMs * 1.5) {
+        drops += Math.max(1, Math.round(delta / refreshMs) - 1);
+      }
+
+      if (ts - windowStart >= 500) {
+        const fps = frames / ((ts - windowStart) / 1000);
+        fpsEl.textContent = fps.toFixed(0);
+        dropEl.textContent = String(drops);
+        frames = 0;
+        windowStart = ts;
+      }
+      rafId = requestAnimationFrame(tick);
+    }
+
+    return {
+      start() {
+        active = true;
+        frames = 0;
+        drops = 0;
+        lastTs = 0;
+        windowStart = 0;
+        fpsEl.textContent = '--';
+        dropEl.textContent = '0';
+        cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(tick);
+        log('开始测量：' + label, 'info');
+      },
+      stop() {
+        if (!active) return;
+        active = false;
+        cancelAnimationFrame(rafId);
+        dropEl.textContent = String(drops);
+        log(label + ' 结束：掉帧 ' + drops + ' 次，基线 ' + refreshMs.toFixed(2) + 'ms', 'warn');
+      },
+      getDrops() { return drops; }
+    };
+  }
+
+  const meterA = createMeter($('fpsA'), $('dropA'), '赛道 A（left + width）');
+  const meterB = createMeter($('fpsB'), $('dropB'), '赛道 B（transform）');
+
+  /* ---------------- 双赛道 ---------------- */
+  const runnerA = $('runnerA');
+  const runnerB = $('runnerB');
+  const trackA = runnerA.parentElement;
+  const trackB = runnerB.parentElement;
+  let laneRunning = { A: false, B: false };
+
+  function resetLane(which) {
+    if (which === 'A') {
+      runnerA.style.transition = 'none';
+      runnerA.style.left = '0px';
+      runnerA.style.width = '56px';
+      void runnerA.offsetWidth;          // 强制应用归位状态
+      runnerA.style.transition = '';
+    } else {
+      runnerB.style.transition = 'none';
+      runnerB.style.transform = 'translateX(0) scaleX(1)';
+      void runnerB.offsetWidth;
+      runnerB.style.transition = '';
+    }
+  }
+
+  function runLane(which) {
+    if (laneRunning[which]) return;
+    laneRunning[which] = true;
+    resetLane(which);
+    const meter = which === 'A' ? meterA : meterB;
+
+    // 等两帧，确保归位状态已经绘制，再启动终点值触发过渡
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const dist = (which === 'A' ? trackA.clientWidth : trackB.clientWidth) - 108;
+      if (which === 'A') {
+        runnerA.style.left = dist + 'px';
+        runnerA.style.width = '96px';
+      } else {
+        runnerB.style.transform = 'translateX(' + dist + 'px) scaleX(1.7)';
+      }
+      meter.start();
+
+      setTimeout(() => {
+        meter.stop();
+        laneRunning[which] = false;
+        log('赛道 ' + which + ' 完成：掉帧 ' + meter.getDrops() + ' 次', which === 'A' ? 'warn' : 'ok');
+      }, 2500);
+    }));
+  }
+
+  $('raceBoth').addEventListener('click', () => {
+    runLane('A');
+    runLane('B');
+  });
+  document.querySelectorAll('[data-lane]').forEach((btn) => {
+    btn.addEventListener('click', () => runLane(btn.dataset.lane));
+  });
+  $('raceReset').addEventListener('click', () => {
+    resetLane('A');
+    resetLane('B');
+    toast('赛道已归位');
+  });
+
+  /* ---------------- 层检查器 ---------------- */
+  const promoWill = $('promoWill');
+  const promoZ = $('promoZ');
+  const miniGrid = $('miniGrid');
+  const layerRows = $('layerRows');
+  const layerCountEl = $('layerCount');
+  const layerMemEl = $('layerMem');
+  const dpr = window.devicePixelRatio || 1;
+  $('dprOut').textContent = dpr.toFixed(2);
+
+  // 60 张演示卡片：固定数量，避免无限叠加
+  const miniCards = [];
+  for (let i = 0; i < 60; i++) {
+    const card = document.createElement('div');
+    card.className = 'mini-card';
+    card.textContent = '卡 ' + (i + 1);
+    miniGrid.appendChild(card);
+    miniCards.push(card);
+  }
+
+  function layerBytes(el) {
+    const rect = el.getBoundingClientRect();
+    return Math.max(0, rect.width * rect.height) * dpr * dpr * 4;
+  }
+
+  function fmtBytes(bytes) {
+    if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+    return (bytes / 1024).toFixed(1) + ' KB';
+  }
+
+  function rebuildLayers() {
+    const rows = [];   // { name, el, count }
+    if (promoWill.classList.contains('lifted')) {
+      rows.push({ name: '演示卡 A · will-change', el: promoWill, count: 1 });
+    }
+    if (promoZ.classList.contains('zlift')) {
+      rows.push({ name: '演示卡 B · translateZ(0)', el: promoZ, count: 1 });
+    }
+    const promotedCards = miniCards.filter((c) => c.classList.contains('layer-on'));
+    if (promotedCards.length) {
+      rows.push({
+        name: '卡片 × ' + promotedCards.length + ' · will-change',
+        el: promotedCards[0],
+        count: promotedCards.length
+      });
+    }
+    if (blurMode === 'backdrop') {
+      rows.push({ name: '玻璃面板 · backdrop-filter', el: $('glassPanel'), count: 1 });
+    } else if (blurMode === 'filter') {
+      rows.push({ name: '模糊面板 · filter: blur', el: $('glassPanel'), count: 1 });
+    }
+
+    let total = 0;
+    let html = '';
+    rows.forEach((row) => {
+      const bytes = layerBytes(row.el) * row.count;
+      total += bytes;
+      const rect = row.el.getBoundingClientRect();
+      html += '<div class="layer-row"><span>' + row.name + '</span>' +
+        '<span>' + Math.round(rect.width) + '×' + Math.round(rect.height) + ' css</span>' +
+        '<span class="mem">' + fmtBytes(bytes) + '</span></div>';
+    });
+
+    // 根层按视口计算一次，作为基准
+    const rootBytes = window.innerWidth * window.innerHeight * dpr * dpr * 4;
+    total += rootBytes;
+
+    const layerCount = rows.length + 1;
+    layerCountEl.textContent = String(layerCount);
+    layerMemEl.textContent = fmtBytes(total);
+    layerRows.innerHTML = html ||
+      '<div class="layer-empty">当前只有根层。打开左侧开关，或点击"层爆炸"。</div>' +
+      '<div class="layer-row"><span>根层（视口）</span><span>' +
+      window.innerWidth + '×' + window.innerHeight + '</span><span class="mem">' +
+      fmtBytes(rootBytes) + '</span></div>';
+
+    if (rows.length) {
+      layerRows.innerHTML = html + '<div class="layer-row" style="border-top:1px dashed #334155;margin-top:6px;padding-top:6px">' +
+        '<span>根层（视口）</span><span>' + window.innerWidth + '×' + window.innerHeight +
+        '</span><span class="mem">' + fmtBytes(rootBytes) + '</span></div>';
+    }
+  }
+
+  $('toggleWill').addEventListener('click', () => {
+    promoWill.classList.toggle('lifted');
+    const on = promoWill.classList.contains('lifted');
+    rebuildLayers();
+    log('演示卡 A：will-change ' + (on ? '已开启（动画结束应回收）' : '已清理'), on ? 'ok' : 'info');
+  });
+
+  $('toggleZ').addEventListener('click', () => {
+    promoZ.classList.toggle('zlift');
+    const on = promoZ.classList.contains('zlift');
+    rebuildLayers();
+    log('演示卡 B：translateZ(0) ' + (on ? '已开启（祖传写法）' : '已清理'), on ? 'warn' : 'info');
+  });
+
+  $('explodeBtn').addEventListener('click', () => {
+    miniCards.forEach((c) => c.classList.add('layer-on'));
+    rebuildLayers();
+    log('层爆炸：60 张卡片全部 will-change: transform —— 显存预算被吃光', 'danger');
+    toast('60 层已创建，观察右侧显存估算');
+  });
+
+  $('cleanBtn').addEventListener('click', () => {
+    miniCards.forEach((c) => c.classList.remove('layer-on'));
+    rebuildLayers();
+    log('一键清理：60 张卡片的层已回收', 'ok');
+    toast('层已全部回收');
+  });
+
+  /* ---------------- 模糊 / 混合成本 ---------------- */
+  const blurStage = $('blurStage');
+  const orb = $('orb');
+  let blurMode = 'none';
+  const meterBlur = createMeter($('fpsBlur'), $('dropBlur'), '模糊成本');
+  let blurTimer = 0;
+
+  const modes = ['none', 'backdrop', 'filter', 'blend'];
+  function setMode(mode) {
+    blurMode = mode;
+    blurStage.classList.remove('mode-backdrop', 'mode-filter', 'mode-blend');
+    if (mode !== 'none') blurStage.classList.add('mode-' + mode);
+    document.querySelectorAll('.pill').forEach((p) => {
+      p.classList.toggle('active', p.dataset.mode === mode);
+    });
+    rebuildLayers();
+    log('绘制模式切换为：' + mode, mode === 'none' ? 'ok' : 'warn');
+  }
+
+  $('modePills').addEventListener('click', (e) => {
+    const btn = e.target.closest('.pill');
+    if (btn) setMode(btn.dataset.mode);
+  });
+
+  $('orbToggle').addEventListener('click', () => {
+    const running = orb.classList.toggle('running');
+    $('orbToggle').textContent = running ? '■ 停止背景光斑' : '▶ 启动背景光斑';
+    log('背景光斑：' + (running ? '开始移动（合成器动画，不占主线程）' : '已停止'), 'info');
+  });
+
+  $('blurMeasure').addEventListener('click', () => {
+    if (blurMode === 'none') {
+      toast('先切到一个模糊/混合模式再测量更有对比意义');
+    }
+    meterBlur.start();
+    clearTimeout(blurTimer);
+    blurTimer = setTimeout(() => {
+      meterBlur.stop();
+      const drops = meterBlur.getDrops();
+      toast('测量结束：掉帧 ' + drops + ' 次');
+    }, 4000);
+  });
+
+  /* ---------------- 初始化 ---------------- */
+  setMode('none');
+  rebuildLayers();
+  window.addEventListener('resize', rebuildLayers);
+  window.addEventListener('load', rebuildLayers);
+  log('合成器实验室就绪：先看双赛道，再玩层检查器与模糊成本。', 'ok');
+</script>
+</body>
+</html>
