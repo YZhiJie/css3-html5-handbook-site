@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 01：视觉回归测试的差异判定
+  ------------------------------------------------------------
+  【知识点】
+    1. 截图只是证据，判定规则（阈值 + 遮罩）才是测试
+    2. 结构 / 样式差异与渲染噪声要分开处理
+    3. maxDiffPixelRatio 与单像素 threshold 的配合
+    4. 差异图与差异比例让失败可解释
+  【运行方式】
+    单文件、零网络、零外部资源；双击 file:// 即可运行。
+  【效果说明】
+    在 Canvas 中模拟「基线 / 当前」两张卡片截图，选择不同的
+    改动类型与噪声强度，观察像素差异比例如何跨过 1% 预算线；
+    差异图用红色高亮，判定结果实时更新。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 01 · 视觉回归测试的差异判定</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:#f1f5f9; color:#0f172a; line-height:1.6;
+    padding:22px 16px 60px;
+  }
+  .wrap { max-width:1040px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:#64748b; font-size:13.5px; margin-bottom:18px; }
+  .panel {
+    background:#fff; border:1px solid #cbd5e1; border-radius:12px;
+    padding:16px; margin-bottom:16px;
+  }
+  h2 { font-size:16px; margin-bottom:10px; }
+  .row { display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+  label { font-size:13px; color:#475569; display:flex; gap:6px; align-items:center; }
+  select, input[type="range"] { font:inherit; }
+  select { padding:5px 8px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; }
+  input[type="range"] { width:170px; }
+  canvas {
+    width:100%; max-width:320px; border:1px solid #cbd5e1;
+    border-radius:10px; background:#fff; image-rendering:pixelated;
+  }
+  .shots { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+  .shot { min-width:0; }
+  .shot h3 { font-size:12.5px; color:#64748b; margin-bottom:6px; font-weight:600; }
+  .verdict { font-size:20px; font-weight:700; padding:12px 16px; border-radius:10px; margin-top:12px; }
+  .pass { background:#dcfce7; color:#166534; }
+  .fail { background:#fee2e2; color:#991b1b; }
+  .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-top:12px; }
+  .metric { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; }
+  .metric b { display:block; font-size:18px; }
+  .metric span { font-size:12px; color:#64748b; }
+  .hint { font-size:12.5px; color:#64748b; margin-top:10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>视觉回归：差异判定，不是截图比对</h1>
+  <p class="sub">同一张「卡片截图」在不同改动与噪声下，差异比例会跨过预算线。判定的目标是拦住真实回归，而不是追求 0 差异。</p>
+
+  <div class="panel">
+    <h2>1. 构造一次变更</h2>
+    <div class="row">
+      <label>改动类型
+        <select id="change">
+          <option value="none">无改动</option>
+          <option value="shift" selected>整体右移 1px</option>
+          <option value="color">主色蓝 → 绿</option>
+          <option value="structure">角标丢失</option>
+        </select>
+      </label>
+      <label>渲染噪声
+        <select id="noise">
+          <option value="0">无</option>
+          <option value="1" selected>轻微抗锯齿抖动</option>
+          <option value="2">较强抖动</option>
+        </select>
+      </label>
+      <label>差异预算
+        <input id="ratio" type="range" min="0.1" max="5" step="0.1" value="1">
+        <b id="ratioOut">1.0%</b>
+      </label>
+    </div>
+    <p class="hint">预算 = maxDiffPixelRatio。单像素颜色容差固定为 0.2（模拟 Playwright threshold）。</p>
+  </div>
+
+  <div class="panel">
+    <h2>2. 三张图：基线 / 当前 / 差异</h2>
+    <div class="shots">
+      <div class="shot"><h3>基线截图（已评审）</h3><canvas id="base" width="320" height="200"></canvas></div>
+      <div class="shot"><h3>当前截图（本次 PR）</h3><canvas id="curr" width="320" height="200"></canvas></div>
+      <div class="shot"><h3>差异图（红色 = 超容差像素）</h3><canvas id="diff" width="320" height="200"></canvas></div>
+    </div>
+    <div class="verdict" id="verdict">—</div>
+    <div class="metrics">
+      <div class="metric"><b id="mDiff">0</b><span>超容差像素数</span></div>
+      <div class="metric"><b id="mRatio">0.00%</b><span>差异像素比例</span></div>
+      <div class="metric"><b id="mBudget">1.00%</b><span>当前预算</span></div>
+      <div class="metric"><b id="mNoise">0</b><span>噪声像素数</span></div>
+    </div>
+    <p class="hint" id="explain"></p>
+  </div>
+</div>
+
+<script>
+  const W = 320, H = 200;
+
+  // 用固定像素坐标绘制卡片，保证基线可复现
+  function drawCard(ctx, { color, shiftX, badge, noise }) {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, W, H);
+
+    const x = 24 + shiftX, y = 28, w = 272, h = 144;
+
+    // 阴影（模拟抗锯齿噪声：边缘透明度抖动）
+    ctx.save();
+    ctx.shadowColor = `rgba(15,23,42,${0.18 + noiseJitter(noise)})`;
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 4;
+    ctx.fillStyle = "#f8fafc";
+    roundRect(ctx, x, y, w, h, 12);
+    ctx.fill();
+    ctx.restore();
+
+    // 边框
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 1;
+    roundRect(ctx, x + 0.5, y + 0.5, w, h, 12);
+    ctx.stroke();
+
+    // 主色块
+    ctx.fillStyle = color;
+    roundRect(ctx, x + 16, y + 16, 72, 48, 8);
+    ctx.fill();
+
+    // 文本行
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "600 15px 'PingFang SC', sans-serif";
+    ctx.fillText("订单卡片", x + 104, y + 38);
+    ctx.fillStyle = "#64748b";
+    ctx.font = "12px 'PingFang SC', sans-serif";
+    ctx.fillText("创建于 2026-11-04 · 状态：已支付", x + 104, y + 60);
+    ctx.fillStyle = "#334155";
+    ctx.font = "13px 'PingFang SC', sans-serif";
+    ctx.fillText("合计 ¥ 1,280.00", x + 16, y + 102);
+
+    // 角标
+    if (badge) {
+      ctx.fillStyle = "#22c55e";
+      roundRect(ctx, x + w - 66, y + 16, 50, 24, 12);
+      ctx.fill();
+      ctx.fillStyle = "#052e16";
+      ctx.font = "600 11px 'PingFang SC', sans-serif";
+      ctx.fillText("已支付", x + w - 54, y + 32);
+    }
+
+    // 噪声：在边框附近随机打点，模拟抗锯齿差异
+    if (noise > 0) {
+      const count = noise === 1 ? 220 : 620;
+      for (let i = 0; i < count; i++) {
+        const nx = x + Math.random() * w;
+        const ny = y + Math.random() * h;
+        const a = noise === 1 ? 0.05 : 0.12;
+        ctx.fillStyle = `rgba(100,116,139,${a})`;
+        ctx.fillRect(Math.round(nx), Math.round(ny), 1, 1);
+      }
+    }
+  }
+
+  function noiseJitter(noise) {
+    return noise > 0 ? (Math.random() - 0.5) * 0.06 : 0;
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  // 逐像素比较：返回差异数量与差异图数据
+  function compare(a, b, tolerance) {
+    const da = a.data, db = b.data;
+    const out = new ImageData(W, H);
+    let diff = 0;
+    for (let i = 0; i < da.length; i += 4) {
+      const dr = da[i] - db[i];
+      const dg = da[i + 1] - db[i + 1];
+      const dbl = da[i + 2] - db[i + 2];
+      const dist = Math.sqrt(dr * dr + dg * dg + dbl * dbl) / 441.67;
+      if (dist > tolerance) {
+        diff++;
+        out.data[i] = 239; out.data[i + 1] = 68; out.data[i + 2] = 68; out.data[i + 3] = 255;
+      } else {
+        const g = Math.round((da[i] + db[i]) / 2);
+        out.data[i] = g; out.data[i + 1] = g; out.data[i + 2] = g; out.data[i + 3] = 255;
+      }
+    }
+    return { diff, image: out };
+  }
+
+  const baseCv = document.getElementById("base");
+  const currCv = document.getElementById("curr");
+  const diffCv = document.getElementById("diff");
+  const baseCtx = baseCv.getContext("2d", { willReadFrequently: true });
+  const currCtx = currCv.getContext("2d", { willReadFrequently: true });
+  const diffCtx = diffCv.getContext("2d", { willReadFrequently: true });
+
+  let noiseSeed = 0;
+
+  function render() {
+    const change = document.getElementById("change").value;
+    const noise = Number(document.getElementById("noise").value);
+    const budget = Number(document.getElementById("ratio").value) / 100;
+
+    // 基线固定：无改动、无噪声
+    drawCard(baseCtx, { color: "#2563eb", shiftX: 0, badge: true, noise: 0 });
+
+    const opts = { color: "#2563eb", shiftX: 0, badge: true, noise };
+    if (change === "shift") opts.shiftX = 1;
+    if (change === "color") opts.color = "#16a34a";
+    if (change === "structure") opts.badge = false;
+    drawCard(currCtx, opts);
+
+    const a = baseCtx.getImageData(0, 0, W, H);
+    const b = currCtx.getImageData(0, 0, W, H);
+    const { diff, image } = compare(a, b, 0.2);
+    diffCtx.putImageData(image, 0, 0);
+
+    const total = W * H;
+    const ratio = diff / total;
+    const passed = ratio <= budget;
+
+    const verdict = document.getElementById("verdict");
+    verdict.className = "verdict " + (passed ? "pass" : "fail");
+    verdict.textContent = passed
+      ? `✅ 通过 — 差异 ${(ratio * 100).toFixed(2)}% ≤ 预算 ${(budget * 100).toFixed(1)}%`
+      : `❌ 失败 — 差异 ${(ratio * 100).toFixed(2)}% > 预算 ${(budget * 100).toFixed(1)}%`;
+
+    document.getElementById("mDiff").textContent = diff.toLocaleString();
+    document.getElementById("mRatio").textContent = (ratio * 100).toFixed(2) + "%";
+    document.getElementById("mBudget").textContent = (budget * 100).toFixed(2) + "%";
+    document.getElementById("mNoise").textContent = noise === 0 ? "0" : noise === 1 ? "220" : "620";
+
+    const messages = {
+      none: "无改动时，若仍有差异，说明噪声没有被容差吸收。",
+      shift: "1px 位移会改变所有竖边的像素。它通常是真实回归，但预算过松时会漏掉。",
+      color: "主色变化只影响一小块面积，差异比例可能低于预算；这提示「比例阈值」会漏掉局部但重要的变化。",
+      structure: "角标丢失影响一块区域，应被判失败；如果通过，说明预算或遮罩范围有问题。",
+    };
+    document.getElementById("explain").textContent = messages[change];
+  }
+
+  ["change", "noise", "ratio"].forEach((id) => {
+    document.getElementById(id).addEventListener("input", render);
+  });
+  render();
+</script>
+</body>
+</html>

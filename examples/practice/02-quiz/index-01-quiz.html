@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 02：分级自测题库
+  ------------------------------------------------------------
+  【知识点】
+    1. L1 识记 / L2 机制 / L3 因果三级能力模型
+    2. 即时判分与解析，错题记录薄弱主题
+    3. 按级别抽题，避免「只刷识记」的错觉
+  【运行方式】
+    单文件、零网络、零外部资源；双击 file:// 即可运行。
+  【效果说明】
+    选择级别后开始答题；每题选择后立即显示对错与解析，
+    结束后给出得分与薄弱主题。题目取自 docs/practice/02-quiz.md。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 02 · 分级自测题库</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:#0b1220; color:#e2e8f0; line-height:1.65;
+    padding:22px 16px 60px;
+  }
+  .wrap { max-width:820px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:#94a3b8; font-size:13.5px; margin-bottom:18px; }
+  .panel { background:#111a30; border:1px solid #223055; border-radius:12px; padding:18px; margin-bottom:16px; }
+  .levels { display:flex; gap:8px; flex-wrap:wrap; }
+  .levels button {
+    font:inherit; padding:8px 16px; border-radius:999px; cursor:pointer;
+    border:1px solid #334155; background:#0e1730; color:#cbd5e1;
+  }
+  .levels button.on { background:#22d3ee; border-color:#22d3ee; color:#0b1220; font-weight:700; }
+  .meta { display:flex; justify-content:space-between; font-size:12.5px; color:#64748b; margin-bottom:12px; }
+  .q { font-size:16px; font-weight:600; margin-bottom:14px; }
+  .domain { font-size:11.5px; color:#22d3ee; border:1px solid #164e63; border-radius:999px; padding:1px 8px; margin-left:8px; vertical-align:2px; }
+  .opt {
+    display:block; width:100%; text-align:left; font:inherit; font-size:14px;
+    padding:11px 14px; margin-bottom:9px; border-radius:9px; cursor:pointer;
+    border:1px solid #334155; background:#0e1730; color:#e2e8f0;
+  }
+  .opt:hover { border-color:#22d3ee; }
+  .opt.right { background:#052e1a; border-color:#166534; color:#86efac; }
+  .opt.wrong { background:#3f0d12; border-color:#991b1b; color:#fca5a5; }
+  .opt:disabled { cursor:default; }
+  .explain { display:none; font-size:13px; color:#94a3b8; background:#0e1730;
+    border:1px solid #223055; border-radius:9px; padding:12px; margin-top:10px; }
+  .explain b { color:#e2e8f0; }
+  .next {
+    display:none; margin-top:12px; font:inherit; padding:9px 18px; border-radius:9px;
+    border:1px solid #22d3ee; background:#22d3ee; color:#0b1220; font-weight:700; cursor:pointer;
+  }
+  .result b { font-size:22px; }
+  .weak { font-size:13px; color:#fbbf24; margin-top:8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>分级自测：先定位盲区，再验证机制</h1>
+  <p class="sub">L1 识记、L2 机制、L3 因果。错题会记录主题，建议回到对应正文补齐后再复测。</p>
+
+  <div class="panel">
+    <div class="levels" id="levels">
+      <button data-level="L1" class="on">L1 识记</button>
+      <button data-level="L2">L2 机制</button>
+      <button data-level="L3">L3 因果</button>
+      <button data-level="ALL">混合</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="meta">
+      <span id="progress">准备开始</span>
+      <span id="score">得分 0 / 0</span>
+    </div>
+    <div class="q" id="question">点击上方级别开始答题</div>
+    <div id="options"></div>
+    <div class="explain" id="explain"></div>
+    <button class="next" id="next" type="button">下一题</button>
+    <div class="result" id="result"></div>
+    <div class="weak" id="weak"></div>
+  </div>
+</div>
+
+<script>
+  const bank = [
+    {
+      level: "L1", domain: "CSS",
+      q: "box-sizing: border-box 的作用是什么？",
+      options: [
+        "width / height 只包含内容区",
+        "width / height 包含内容、内边距与边框",
+        "让元素自动撑满父容器",
+        "让内边距不参与布局",
+      ],
+      answer: 1,
+      explain: "默认的 content-box 只含内容；border-box 把 padding 与 border 算进宽高，布局更可控。",
+    },
+    {
+      level: "L1", domain: "HTML",
+      q: "装饰性图片的 alt 应该怎么写？",
+      options: ['alt="装饰图片"', "不写 alt", 'alt=""', 'alt="image"'],
+      answer: 2,
+      explain: "空 alt 告诉读屏「这是装饰，跳过」；不写 alt 可能被读出文件名。",
+    },
+    {
+      level: "L1", domain: "性能",
+      q: "LCP 衡量的是什么？",
+      options: [
+        "首次输入延迟",
+        "视口内最大内容元素完成渲染的时间",
+        "布局偏移总量",
+        "脚本下载耗时",
+      ],
+      answer: 1,
+      explain: "LCP 关注「主要内容多久出现」；INP 关注输入响应，CLS 关注布局稳定性。",
+    },
+    {
+      level: "L1", domain: "CSS",
+      q: "容器查询与媒体查询的核心区别是？",
+      options: [
+        "容器查询只能查颜色",
+        "容器查询按祖先容器尺寸判断，媒体查询按视口判断",
+        "媒体查询性能更差",
+        "两者完全等价",
+      ],
+      answer: 1,
+      explain: "组件放进不同宽度的容器时，容器查询能让组件按自身空间响应，而不是按视口。",
+    },
+    {
+      level: "L1", domain: "HTML",
+      q: "defer 与 async 的差异是？",
+      options: [
+        "defer 下载完立即执行，async 延后",
+        "defer 保序并在解析完成后执行，async 下载完就执行且不保序",
+        "两者都阻塞解析",
+        "async 只用于内联脚本",
+      ],
+      answer: 1,
+      explain: "defer 适合有依赖顺序的脚本；async 适合独立统计脚本。",
+    },
+    {
+      level: "L2", domain: "布局",
+      q: "Flex 子项为什么会被长文本撑破？",
+      options: [
+        "flex-basis 默认是 auto",
+        "子项默认 min-width:auto，不会小于内容最小宽度",
+        "父容器没有设置 overflow",
+        "没有使用 grid",
+      ],
+      answer: 1,
+      explain: "显式 min-width:0 才允许子项收缩，配合 overflow 与省略号处理长文本。",
+    },
+    {
+      level: "L2", domain: "层叠",
+      q: "@layer 声明后，未分层样式的优先级如何？",
+      options: [
+        "低于所有层",
+        "等于最后一层",
+        "高于所有层",
+        "与层内样式无关",
+      ],
+      answer: 2,
+      explain: "未分层样式高于所有层，这是迁移期必须先把遗留样式收编的原因。",
+    },
+    {
+      level: "L2", domain: "机制",
+      q: "什么是强制同步布局？",
+      options: [
+        "浏览器自动合并所有布局",
+        "写样式后立即读几何属性，迫使浏览器同步完成布局",
+        "使用 position:fixed 导致的布局",
+        "CSS Grid 的隐式布局",
+      ],
+      answer: 1,
+      explain: "读几何属性会刷新布局；读写交替会把批量优化打断成多次同步重排。",
+    },
+    {
+      level: "L2", domain: "架构",
+      q: "Tailwind 的 px-4 为什么能覆盖组件类里的内边距？",
+      options: [
+        "因为它带 !important",
+        "因为 utilities 层高于 components 层",
+        "因为它的选择器更长",
+        "因为它在 HTML 里更靠后",
+      ],
+      answer: 1,
+      explain: "分层后先比层顺序；工具类位于 utilities 层，覆盖组件层是设计行为。",
+    },
+    {
+      level: "L2", domain: "组合场景",
+      q: "锚点定位不被支持时，合理的兜底是？",
+      options: [
+        "直接报错",
+        "用相对 / 绝对定位给出近似位置，再在 @supports 内启用锚点",
+        "改用 float",
+        "移除提示浮层",
+      ],
+      answer: 1,
+      explain: "兜底要保证功能完整，只是位置不够精确；增强路径再提升体验。",
+    },
+    {
+      level: "L3", domain: "机制",
+      q: "为什么 transform / opacity 动画通常比 width 动画流畅？",
+      options: [
+        "因为它们的选择器更短",
+        "因为它们在合成阶段处理，不触发布局与重绘",
+        "因为浏览器对 width 有 bug",
+        "因为它们总是异步执行",
+      ],
+      answer: 1,
+      explain: "合成线程可独立处理 transform / opacity；width 改变几何，触发布局并可能连锁重绘。",
+    },
+    {
+      level: "L3", domain: "架构",
+      q: "为什么主题引导脚本必须内联在 head？",
+      options: [
+        "为了减少文件数量",
+        "为了在首帧渲染前写入 data-theme，避免闪白",
+        "因为外部脚本不能读 localStorage",
+        "为了绕过 CSP",
+      ],
+      answer: 1,
+      explain: "首帧之后才写主题，浏览器已经用默认主题画过一帧；后置或外部脚本都可能闪。",
+    },
+    {
+      level: "L3", domain: "质量",
+      q: "为什么视觉回归必须遮罩时间戳与随机内容？",
+      options: [
+        "为了加快截图速度",
+        "因为这些区域每次都不同，会产生与回归无关的像素差异",
+        "因为遮罩能提高对比度",
+        "为了减少基线数量",
+      ],
+      answer: 1,
+      explain: "噪声不排除，测试会长期失败并被忽略；遮罩才是让真实回归浮出来的前提。",
+    },
+    {
+      level: "L3", domain: "性能",
+      q: "为什么性能预算要同时有资源、请求与指标三层？",
+      options: [
+        "因为三层数字必须相等",
+        "资源与请求是可归因输入，指标是最终输出，缺一层就无法定位超支",
+        "因为浏览器只支持三层",
+        "为了增加 CI 时间",
+      ],
+      answer: 1,
+      explain: "只有指标不知道谁超支；只有资源可能省了字节仍然慢。三层共同构成可行动的预算。",
+    },
+    {
+      level: "L3", domain: "兼容",
+      q: "为什么渐进增强要把增强样式放进 @supports？",
+      options: [
+        "因为 @supports 性能更好",
+        "若不分离，旧引擎整段规则失效，基础布局也不存在",
+        "因为 @supports 会自动加前缀",
+        "为了减少代码行数",
+      ],
+      answer: 1,
+      explain: "基础层必须始终可用，增强层只在支持时叠加；混在一起会让旧环境直接坏掉。",
+    },
+  ];
+
+  const levels = document.getElementById("levels");
+  const questionEl = document.getElementById("question");
+  const optionsEl = document.getElementById("options");
+  const explainEl = document.getElementById("explain");
+  const nextBtn = document.getElementById("next");
+  const progressEl = document.getElementById("progress");
+  const scoreEl = document.getElementById("score");
+  const resultEl = document.getElementById("result");
+  const weakEl = document.getElementById("weak");
+
+  let queue = [];
+  let index = 0;
+  let score = 0;
+  let answered = false;
+  const weakTopics = new Set();
+
+  function shuffle(arr) {
+    return arr
+      .map((v) => ({ v, r: Math.random() }))
+      .sort((a, b) => a.r - b.r)
+      .map((x) => x.v);
+  }
+
+  function start(level) {
+    const pool = level === "ALL" ? bank : bank.filter((q) => q.level === level);
+    queue = shuffle(pool).slice(0, level === "ALL" ? 10 : 8);
+    index = 0;
+    score = 0;
+    weakTopics.clear();
+    resultEl.innerHTML = "";
+    weakEl.textContent = "";
+    render();
+  }
+
+  function render() {
+    answered = false;
+    explainEl.style.display = "none";
+    nextBtn.style.display = "none";
+    optionsEl.innerHTML = "";
+
+    if (index >= queue.length) {
+      const total = queue.length;
+      resultEl.innerHTML = `<b>${score} / ${total}</b> 题正确（${Math.round((score / total) * 100)}%）；
+        ${score / total >= 0.8 ? "达到 L1 标准" : "建议按薄弱主题回读正文"}`;
+      questionEl.textContent = "本轮结束";
+      progressEl.textContent = "已完成";
+      weakEl.textContent = weakTopics.size
+        ? "薄弱主题：" + [...weakTopics].join("、")
+        : "没有记录到错题主题";
+      return;
+    }
+
+    const q = queue[index];
+    questionEl.innerHTML = `${q.q}<span class="domain">${q.level} · ${q.domain}</span>`;
+    progressEl.textContent = `第 ${index + 1} / ${queue.length} 题`;
+    scoreEl.textContent = `得分 ${score} / ${index}`;
+
+    q.options.forEach((text, i) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "opt";
+      btn.textContent = `${String.fromCharCode(65 + i)}. ${text}`;
+      btn.addEventListener("click", () => choose(i, q));
+      optionsEl.appendChild(btn);
+    });
+  }
+
+  function choose(pick, q) {
+    if (answered) return;
+    answered = true;
+    const opts = [...optionsEl.children];
+    opts.forEach((btn, i) => {
+      btn.disabled = true;
+      if (i === q.answer) btn.classList.add("right");
+      if (i === pick && pick !== q.answer) btn.classList.add("wrong");
+    });
+
+    const correct = pick === q.answer;
+    if (correct) score++;
+    else weakTopics.add(q.domain);
+
+    scoreEl.textContent = `得分 ${score} / ${index + 1}`;
+    explainEl.innerHTML = `<b>${correct ? "✅ 正确" : "❌ 错误"}</b> —— ${q.explain}`;
+    explainEl.style.display = "block";
+    nextBtn.style.display = "inline-block";
+    nextBtn.textContent = index + 1 < queue.length ? "下一题" : "查看结果";
+  }
+
+  nextBtn.addEventListener("click", () => {
+    index++;
+    render();
+  });
+
+  levels.addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    [...levels.children].forEach((b) => b.classList.toggle("on", b === btn));
+    start(btn.dataset.level);
+  });
+
+  start("L1");
+</script>
+</body>
+</html>

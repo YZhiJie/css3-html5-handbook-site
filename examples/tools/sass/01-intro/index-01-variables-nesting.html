@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dart Sass 浏览器端即时编译 —— 变量、嵌套、&amp;、@mixin、@for</title>
+
+  <!-- Dart Sass standalone 版（纯 JS，CDN 加载即可） -->
+  <script src="https://cdn.jsdelivr.net/npm/sass@1.85.0/sass.standalone.js"></script>
+
+  <style>
+    /* 页面基础样式（原生 CSS，用于包裹 Sass 演示区） */
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", sans-serif;
+      background: #f4f6fa;
+      color: #222;
+    }
+    .page {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 32px 24px 64px;
+    }
+    .page h1 {
+      font-size: 28px;
+      margin: 0 0 8px;
+    }
+    .page .lead {
+      color: #666;
+      margin-bottom: 24px;
+    }
+    .demo-grid {
+      display: grid;
+      gap: 20px;
+    }
+    .demo-card {
+      background: #fff;
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+    }
+    .demo-card h2 {
+      margin: 0 0 8px;
+      font-size: 18px;
+    }
+    .demo-card p.desc {
+      margin: 0 0 16px;
+      color: #555;
+      font-size: 14px;
+    }
+
+    /* 代码展示块样式（原生 CSS） */
+    .code-block {
+      background: #1e293b;
+      color: #e2e8f0;
+      font-family: "JetBrains Mono", "Menlo", monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      border-radius: 10px;
+      padding: 16px;
+      overflow-x: auto;
+      margin-bottom: 16px;
+      white-space: pre;
+    }
+    .code-block .cmnt { color: #64748b; font-style: italic; }
+    .code-block .kw   { color: #c084fc; }
+    .code-block .str  { color: #86efac; }
+    .code-block .num  { color: #fbbf24; }
+    .code-block .fn   { color: #60a5fa; }
+
+    .section-label {
+      font-size: 13px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>🔥 Dart Sass 浏览器端即时编译</h1>
+    <p class="lead">
+      页面加载时通过 <code>sass.standalone.js</code> 实时编译下列 SCSS，然后注入到 DOM。
+      双击 <code>index-01-variables-nesting.html</code> 即可在浏览器里看到效果——
+      无需任何构建工具，甚至可以在 devtools 里直接修改 SCSS 源码后重新编译。
+    </p>
+
+    <div class="demo-grid">
+      <!-- ============================================================= -->
+      <!--  Demo 1：变量 + 嵌套 + & + @mixin + @for 完整展示              -->
+      <!-- ============================================================= -->
+      <div class="demo-card">
+        <h2>Demo 1 · 变量、嵌套、&amp;、@mixin、@for 一次看全</h2>
+        <p class="desc">
+          这是一个"小卡片系统"。所有颜色、尺寸、圆角、阴影都来自 Sass 变量；
+          mixin 封装了 flex-center 和圆角；@for 循环一次性生成 5 种尺寸的按钮类。
+        </p>
+
+        <div class="section-label">SCSS 源码（type=&quot;text/sass&quot;）</div>
+        <div class="code-block" id="scss-source"></div>
+
+        <div class="section-label">编译后的 CSS（供你对照）</div>
+        <div class="code-block" id="css-output">（编译中……）</div>
+
+        <div class="section-label">实际渲染</div>
+        <div class="demo-container" id="demo-container">
+          <!-- 卡片组 -->
+          <div class="card-row">
+            <article class="card card--primary">
+              <h3 class="card__title">卡片 A</h3>
+              <p class="card__body">主色背景，悬浮抬起阴影。</p>
+              <div class="card__footer">
+                <button class="btn btn--primary btn--sm">小按钮</button>
+              </div>
+            </article>
+
+            <article class="card card--ghost">
+              <h3 class="card__title">卡片 B</h3>
+              <p class="card__body">幽灵风格（透明背景 + 边框）。</p>
+              <div class="card__footer">
+                <button class="btn btn--ghost btn--md">中按钮</button>
+              </div>
+            </article>
+
+            <article class="card card--success">
+              <h3 class="card__title">卡片 C</h3>
+              <p class="card__body">成功色语义变体。</p>
+              <div class="card__footer">
+                <button class="btn btn--success btn--lg">大按钮</button>
+              </div>
+            </article>
+          </div>
+
+          <!-- 尺寸循环演示（@for 生成的工具类） -->
+          <div class="gap-demo">
+            <span class="label">@for 生成的间距类：</span>
+            <div class="gap-box sp-4" style="display:inline-block;">sp-4</div>
+            <div class="gap-box sp-8" style="display:inline-block;">sp-8</div>
+            <div class="gap-box sp-12" style="display:inline-block;">sp-12</div>
+            <div class="gap-box sp-16" style="display:inline-block;">sp-16</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <!--  SCSS 源码：写在 type="text/sass" 里，由 JS 读取并编译          -->
+  <!-- ============================================================= -->
+  <script type="text/sass" id="demo-scss">
+// ──────────────────────────────────────
+// 1. 变量：颜色、间距、圆角、阴影（编译时常量）
+// ──────────────────────────────────────
+$color-primary: #3b82f6;
+$color-success: #10b981;
+$color-danger:  #ef4444;
+$color-text:    #1f2937;
+$color-muted:   #6b7280;
+
+$radius-sm: 6px;
+$radius-md: 10px;
+$radius-lg: 16px;
+
+$shadow-card: 0 2px 10px rgba(0, 0, 0, 0.08);
+$shadow-raise: 0 8px 24px rgba(0, 0, 0, 0.18);
+
+// ──────────────────────────────────────
+// 2. @mixin：可复用的样式块（带参数）
+// ──────────────────────────────────────
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@mixin rounded($size: $radius-md) {
+  border-radius: $size;
+}
+
+@mixin card-base {
+  background: #fff;
+  @include rounded($radius-md);
+  box-shadow: $shadow-card;
+  padding: 20px;
+  color: $color-text;
+
+  &__title {
+    margin: 0 0 8px;
+    font-size: 18px;
+  }
+
+  &__body {
+    margin: 0 0 16px;
+    color: $color-muted;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  &__footer {
+    display: flex;
+    gap: 8px;
+  }
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: $shadow-raise;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+}
+
+// ──────────────────────────────────────
+// 3. 嵌套 + & 父选择器
+// ──────────────────────────────────────
+.card-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+}
+
+.card {
+  @include card-base;
+
+  // 修饰符变体（BEM 风格：&--xxx）
+  &--primary {
+    border-left: 4px solid $color-primary;
+  }
+  &--ghost {
+    background: transparent;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    box-shadow: none;
+  }
+  &--success {
+    border-left: 4px solid $color-success;
+  }
+}
+
+// ──────────────────────────────────────
+// 4. @for 循环：生成 .sp-4 / .sp-8 / .sp-12 / .sp-16 的 padding 类
+// ──────────────────────────────────────
+$gap-values: 4, 8, 12, 16;
+@each $px in $gap-values {
+  .sp-#{$px} { padding: #{$px}px; }
+}
+
+// ──────────────────────────────────────
+// 5. & 的更多妙用：按钮尺寸 + 变体
+// ──────────────────────────────────────
+.btn {
+  @include flex-center;
+  @include rounded($radius-sm);
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.2s;
+  line-height: 1;
+
+  // 尺寸用 @for 批量生成
+  @each $size, $px in (sm: 28px, md: 36px, lg: 48px) {
+    &--#{$size} {
+      height: $px;
+      padding: 0 #{$px * 0.8};
+      font-size: #{14px + ($px - 36px) / 6};
+    }
+  }
+
+  // 颜色变体
+  &--primary { background: $color-primary; color: #fff; }
+  &--ghost   { background: transparent;   color: $color-primary; border: 1px solid $color-primary; }
+  &--success { background: $color-success; color: #fff; }
+
+  &:hover { filter: brightness(0.95); }
+}
+
+// 演示容器内的小标签
+.gap-demo {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.12);
+  font-size: 13px;
+  color: $color-muted;
+
+  .label { margin-right: 8px; }
+  .gap-box {
+    background: rgba($color-primary, 0.12);
+    border: 1px solid rgba($color-primary, 0.3);
+    color: $color-primary;
+    border-radius: 4px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    margin-right: 8px;
+  }
+}
+  </script>
+
+  <script>
+    (async () => {
+      const source = document.getElementById('demo-scss').textContent;
+      const sourceEl = document.getElementById('scss-source');
+      const outputEl = document.getElementById('css-output');
+
+      // 展示 SCSS 源码（用简单转义保证原样显示）
+      sourceEl.textContent = source.trim();
+
+      try {
+        // 用 Dart Sass standalone 版编译
+        const { css } = await globalThis.sass.compileStringAsync(source, {
+          style: 'expanded',
+          logger: sassLogger,
+        });
+        outputEl.textContent = css.trim();
+      } catch (err) {
+        outputEl.textContent = '❌ 编译失败：\n' + err.message;
+      }
+    })();
+
+    // 打印 Dart Sass 的警告到控制台（方便调试）
+    const sassLogger = {
+      warn(message, options) { console.warn('[Dart Sass]', message, options); },
+      debug(message, options) { console.log('[Dart Sass debug]', message, options); },
+    };
+  </script>
+</body>
+</html>

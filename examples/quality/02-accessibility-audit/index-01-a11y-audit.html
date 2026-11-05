@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 02：可访问性审计
+  ------------------------------------------------------------
+  【知识点】
+    1. 自动审计能覆盖的机械问题：对比度 / alt / label / 标题层级 / 名称
+    2. 语义缺失（div 假按钮）会同时破坏读屏与键盘路径
+    3. 焦点可见性必须实测，不能只看 CSS 源码
+    4. 修复前后用同一套检查复跑，才能证明缺陷被消除
+  【运行方式】
+    单文件、零网络、零外部资源；图片使用内联 SVG data URI。
+    双击 file:// 即可运行。
+  【效果说明】
+    点击「切换问题版 / 修复版」后审计自动复跑；每项检查给出
+    结论与依据，对比度显示真实计算值。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 02 · 可访问性审计</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:#f1f5f9; color:#0f172a; line-height:1.6;
+    padding:22px 16px 60px;
+  }
+  .wrap { max-width:980px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:#64748b; font-size:13.5px; margin-bottom:18px; }
+  .panel { background:#fff; border:1px solid #cbd5e1; border-radius:12px; padding:16px; margin-bottom:16px; }
+  .bar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+  button {
+    font:inherit; padding:8px 14px; border-radius:9px; cursor:pointer;
+    border:1px solid #cbd5e1; background:#fff; color:#0f172a;
+  }
+  .primary { background:#2563eb; color:#fff; border-color:#2563eb; }
+  .demo { border:1px dashed #cbd5e1; border-radius:10px; padding:16px; background:#fff; }
+  .demo h2, .demo h3 { font-size:17px; margin-bottom:12px; }
+  .field { display:flex; gap:10px; align-items:center; margin-bottom:10px; }
+  .field label { font-size:13px; color:#334155; min-width:64px; }
+  .field input { padding:7px 10px; border:1px solid #cbd5e1; border-radius:8px; font:inherit; width:220px; }
+  .thumb { display:block; margin:10px 0; border-radius:8px; }
+  .muted { font-size:13px; margin:10px 0 14px; }
+  #problem .muted { color:#b6c2d1; }
+  #fixed .muted { color:#64748b; }
+  #problem :focus { outline:none; }
+  #fixed :focus { outline:3px solid #2563eb; outline-offset:2px; }
+  .fake-btn {
+    display:inline-block; padding:8px 16px; border-radius:9px;
+    background:#2563eb; color:#fff; cursor:pointer; font-size:14px;
+  }
+  .results { display:grid; gap:8px; }
+  .check { display:flex; gap:10px; align-items:flex-start; padding:9px 12px; border-radius:8px; font-size:13px; }
+  .ok { background:#dcfce7; color:#166534; }
+  .bad { background:#fee2e2; color:#991b1b; }
+  .check b { white-space:nowrap; }
+  .check span { opacity:.9; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>可访问性审计：从分数落到任务路径</h1>
+  <p class="sub">下面两个版本外观接近，但问题版破坏键盘与读屏路径。审计器对当前版本逐项检查，修复版应全部变绿。</p>
+
+  <div class="panel">
+    <div class="bar">
+      <button id="toggle" class="primary" type="button">切换到「修复版」</button>
+      <span id="mode" style="font-size:13px;color:#64748b;">当前：问题版</span>
+    </div>
+
+    <section class="demo" id="problem">
+      <h3>筛选订单</h3>
+      <div class="field"><input type="text" placeholder="订单号"></div>
+      <div class="field"><input type="email" placeholder="邮箱"></div>
+      <img class="thumb" width="44" height="44"
+        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Crect width='44' height='44' rx='8' fill='%23dbeafe'/%3E%3Cpath d='M10 30h24M10 22h24M10 14h14' stroke='%232563eb' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+      <p class="muted">仅显示最近 30 天记录</p>
+      <div class="fake-btn" onclick="alert('提交筛选')">提交筛选</div>
+    </section>
+
+    <section class="demo" id="fixed" hidden>
+      <h2>筛选订单</h2>
+      <div class="field"><label for="order-no">订单号</label><input id="order-no" type="text"></div>
+      <div class="field"><label for="order-email">邮箱</label><input id="order-email" type="email"></div>
+      <img class="thumb" width="44" height="44" alt="订单列表缩略图"
+        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Crect width='44' height='44' rx='8' fill='%23dbeafe'/%3E%3Cpath d='M10 30h24M10 22h24M10 14h14' stroke='%232563eb' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+      <p class="muted">仅显示最近 30 天记录</p>
+      <button type="button" onclick="alert('提交筛选')">提交筛选</button>
+    </section>
+  </div>
+
+  <div class="panel">
+    <h2 style="font-size:15px;margin-bottom:10px;">审计结果</h2>
+    <div class="results" id="results"></div>
+  </div>
+</div>
+
+<script>
+  function parseColor(str) {
+    const m = str.match(/rgba?\(([^)]+)\)/);
+    if (!m) return [0, 0, 0];
+    return m[1].split(",").slice(0, 3).map((v) => parseFloat(v));
+  }
+
+  function luminance([r, g, b]) {
+    const f = (v) => {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  }
+
+  function contrast(fg, bg) {
+    const l1 = luminance(fg), l2 = luminance(bg);
+    const [a, b] = l1 > l2 ? [l1, l2] : [l2, l1];
+    return (a + 0.05) / (b + 0.05);
+  }
+
+  function audit(root) {
+    const checks = [];
+
+    // 1. 对比度
+    const muted = root.querySelector(".muted");
+    const fg = parseColor(getComputedStyle(muted).color);
+    const bg = parseColor(getComputedStyle(root).backgroundColor || "rgb(255,255,255)");
+    const ratio = contrast(fg, bg);
+    checks.push({
+      name: "正文对比度",
+      pass: ratio >= 4.5,
+      detail: `实测 ${ratio.toFixed(2)}:1（正文要求 ≥ 4.5:1）`,
+    });
+
+    // 2. 图片替代文本
+    const imgs = [...root.querySelectorAll("img")];
+    const noAlt = imgs.filter((img) => !img.hasAttribute("alt"));
+    checks.push({
+      name: "图片替代文本",
+      pass: noAlt.length === 0,
+      detail: noAlt.length ? `${noAlt.length} 张图片缺少 alt 属性` : "所有图片都有 alt",
+    });
+
+    // 3. 表单标签关联
+    const inputs = [...root.querySelectorAll("input, select, textarea")];
+    const unlabeled = inputs.filter((el) => el.labels.length === 0);
+    checks.push({
+      name: "表单标签关联",
+      pass: unlabeled.length === 0,
+      detail: unlabeled.length ? `${unlabeled.length} 个控件没有关联 label` : "每个控件都有 label",
+    });
+
+    // 4. 标题层级
+    const headings = [...document.querySelectorAll("h1, h2, h3, h4, h5, h6")].filter(
+      (h) => h.closest(".demo") === root,
+    );
+    const first = headings[0];
+    const lastPageLevel = 1; // 页面已有 h1
+    const skips = first && Number(first.tagName[1]) > lastPageLevel + 1;
+    checks.push({
+      name: "标题层级",
+      pass: !skips,
+      detail: skips ? `从 h1 直接跳到 ${first.tagName.toLowerCase()}，破坏读屏导航` : "标题从 h1 逐级到 h2",
+    });
+
+    // 5. 可操作元素的语义与名称
+    const clickable = [...root.querySelectorAll("[onclick]")];
+    const fake = clickable.filter(
+      (el) => !el.matches("button, a[href]") && !el.hasAttribute("tabindex"),
+    );
+    checks.push({
+      name: "可操作语义",
+      pass: fake.length === 0,
+      detail: fake.length
+        ? `${fake.length} 个 div 假按钮不可聚焦、无按钮角色`
+        : "操作均使用原生 button",
+    });
+
+    // 6. 焦点可见（实测）
+    const focusables = [...root.querySelectorAll("button, a[href], input, select, textarea")];
+    const el = focusables[0];
+    el.focus();
+    const cs = getComputedStyle(el);
+    const visible = cs.outlineStyle !== "none" && parseFloat(cs.outlineWidth) > 0;
+    checks.push({
+      name: "焦点可见",
+      pass: visible,
+      detail: visible
+        ? `聚焦后轮廓 ${cs.outlineWidth} ${cs.outlineStyle}`
+        : "聚焦后 outline 为 none，键盘用户丢失位置",
+    });
+
+    return checks;
+  }
+
+  const results = document.getElementById("results");
+  const problem = document.getElementById("problem");
+  const fixed = document.getElementById("fixed");
+  const toggle = document.getElementById("toggle");
+  const mode = document.getElementById("mode");
+  let showingFixed = false;
+
+  function run() {
+    const root = showingFixed ? fixed : problem;
+    const checks = audit(root);
+    results.innerHTML = checks
+      .map(
+        (c) =>
+          `<div class="check ${c.pass ? "ok" : "bad"}">
+             <b>${c.pass ? "✅" : "❌"} ${c.name}</b>
+             <span>${c.detail}</span>
+           </div>`,
+      )
+      .join("");
+    mode.textContent = showingFixed ? "当前：修复版" : "当前：问题版";
+    toggle.textContent = showingFixed ? "切换到「问题版」" : "切换到「修复版」";
+  }
+
+  toggle.addEventListener("click", () => {
+    showingFixed = !showingFixed;
+    problem.hidden = showingFixed;
+    fixed.hidden = !showingFixed;
+    run();
+  });
+
+  run();
+</script>
+</body>
+</html>

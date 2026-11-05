@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 01：组件级响应式 · 容器查询 + 子网格 + 逻辑属性
+  ------------------------------------------------------------
+  【知识点】
+    1. @container 按“父容器宽度”切换组件形态，而不是视口
+    2. subgrid 让卡片内部元素对齐父级轨道，跨卡片不硬编码像素
+    3. 逻辑属性在 dir=rtl 时自动镜像
+    4. container-type 会创建包含块，绝对定位后代参照容器
+  【运行方式】
+    单文件、零网络、零外部资源；双击 file:// 即可运行。
+  【效果说明】
+    拖动滑块改变卡片槽宽度，观察卡片在 480px 上下切换
+    横排/竖排；右侧表单行用子网格对齐标签列；切换 RTL
+    观察内边距与角标镜像。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 01 · 组件级响应式</title>
+<style>
+  :root {
+    --ink:#1f2a37; --muted:#667085; --line:#dbe3ec; --bg:#f3f6fa; --card:#fff;
+    --brand:#2563eb; --brand-soft:#e8efff; --accent:#7c3aed;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.6; padding:22px 16px 60px;
+  }
+  .wrap { max-width:1100px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:var(--muted); font-size:13.5px; margin-bottom:18px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  h2 { font-size:16px; margin-bottom:10px; }
+  .controls { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  button {
+    font:inherit; font-size:13px; padding:7px 12px; border-radius:8px; cursor:pointer;
+    border:1px solid var(--line); background:#fff; color:var(--ink);
+  }
+  button.active { background:var(--brand); color:#fff; border-color:var(--brand); }
+  input[type="range"] { width:220px; }
+
+  /* ---- 容器查询：槽位是查询容器 ---- */
+  .slot {
+    box-sizing:content-box;   /* 让滑块的 480px 正好等于容器内容盒宽度 */
+    container-type:inline-size;
+    container-name:card-slot;
+    width:360px; max-width:100%;
+    padding:14px; border:1px dashed #b9c6d6; border-radius:10px;
+    background:#f8fafc; transition:width .15s;
+  }
+  .card {
+    position:relative;
+    display:grid;
+    grid-template-columns:1fr;
+    gap:10px;
+    padding-block:14px;
+    padding-inline:14px;
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:10px;
+    box-shadow:0 6px 18px rgb(15 23 42 / .06);
+  }
+  .card__media { block-size:88px; border-radius:8px; background:linear-gradient(135deg,#93c5fd,#2563eb); }
+  .card__title { font-size:15px; }
+  .card__body { color:var(--muted); font-size:13px; }
+  .card__badge {
+    position:absolute; inset-block-start:8px; inset-inline-end:8px;
+    padding:2px 8px; border-radius:999px; background:var(--accent);
+    color:#fff; font-size:11px; font-weight:700;
+  }
+  @container card-slot (min-width:480px) {
+    .card { grid-template-columns:96px 1fr; grid-template-areas:"media title" "media body"; }
+    .card__media { grid-area:media; block-size:100%; }
+    .card__title { grid-area:title; }
+    .card__body { grid-area:body; }
+  }
+
+  /* ---- 子网格：行内标签与控件继承父级列 ---- */
+  .form {
+    display:grid;
+    grid-template-columns:[label] 110px [field] minmax(0,1fr);
+    gap:10px 14px;
+    padding:12px; border-radius:10px; background:#f8fafc; border:1px solid var(--line);
+  }
+  .row {
+    grid-column:label / field-end;
+    display:grid;
+    grid-template-columns:subgrid;
+    align-items:center;
+  }
+  .row label { grid-column:label; font-size:13px; color:var(--muted); }
+  .row .control { grid-column:field; }
+  .row .control input { width:100%; padding:8px; border:1px solid var(--line); border-radius:7px; font:inherit; }
+
+  .legend { font-size:12.5px; color:var(--muted); margin-top:8px; }
+  .tag { display:inline-block; font-size:11.5px; padding:2px 8px; border-radius:999px; background:var(--brand-soft); color:var(--brand); margin-inline-end:6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>组件级响应式：容器查询 + 子网格 + 逻辑属性</h1>
+  <p class="sub">断点跟着容器走，对齐交给父级轨道，方向交给书写模式。</p>
+
+  <div class="panel">
+    <h2>① 容器查询 · 同一个卡片，不同槽位</h2>
+    <div class="controls">
+      <label style="font-size:13px;color:var(--muted)">槽位宽度
+        <input type="range" id="width" min="260" max="760" step="10" value="360">
+        <b id="widthVal">360</b>px
+      </label>
+      <button id="rtl">切换 dir=rtl</button>
+    </div>
+    <div class="slot" id="slot">
+      <article class="card">
+        <span class="card__badge">New</span>
+        <div class="card__media"></div>
+        <h3 class="card__title">组件标题</h3>
+        <p class="card__body" id="stateText">当前窄态：纵向堆叠。把槽位拖到 480px 以上，卡片自动切为横排。</p>
+      </article>
+    </div>
+    <p class="legend" id="cqState">
+      查询容器是虚线框，不是视口。拖动窗口宽度不会改变卡片形态，只有槽位变化才会触发。
+    </p>
+  </div>
+
+  <div class="panel" id="subgridPanel" dir="ltr">
+    <h2>② 子网格 · 跨行对齐</h2>
+    <div class="form" id="form">
+      <div class="row"><label for="name">显示名称</label><div class="control"><input id="name" value="像素酱"></div></div>
+      <div class="row"><label for="mail">邮箱</label><div class="control"><input id="mail" value="pixel@example.com"></div></div>
+      <div class="row"><label for="team">团队</label><div class="control"><input id="team" value="设计系统组"></div></div>
+    </div>
+    <p class="legend">
+      三行都是一个 <code>display:grid; grid-template-columns:subgrid</code> 的子项，
+      标签列与控件列的边界来自父级 <code>.form</code>，不是每行各算一次。
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>③ 逻辑属性 · 方向镜像</h2>
+    <p class="legend">
+      角标使用 <code>inset-inline-end</code>，内边距使用 <code>padding-inline</code>。
+      点击上方“切换 dir=rtl”后，角标从右上角镜像到左上角，表单标签列也会换边，
+      不需要第二套 CSS。
+    </p>
+    <p class="legend"><span class="tag" id="dirTag">当前 dir=ltr</span>逻辑属性 = 书写方向的函数。</p>
+  </div>
+</div>
+
+<script>
+"use strict";
+const slot = document.getElementById("slot");
+const widthInput = document.getElementById("width");
+const widthVal = document.getElementById("widthVal");
+const stateText = document.getElementById("stateText");
+const cqState = document.getElementById("cqState");
+const rtlBtn = document.getElementById("rtl");
+const dirTag = document.getElementById("dirTag");
+const form = document.getElementById("form");
+
+function syncWidth() {
+  const w = +widthInput.value;
+  slot.style.width = w + "px";
+  widthVal.textContent = String(w);
+  const wide = w >= 480;
+  stateText.textContent = wide
+    ? "当前宽态：横排。媒体查询做不到这一点——视口可能很宽，但槽位只有 360px。"
+    : "当前窄态：纵向堆叠。把槽位拖到 480px 以上，卡片自动切为横排。";
+  cqState.textContent = wide
+    ? "容器查询命中 min-width:480px：卡片切换为 96px 媒体列 + 文本列。"
+    : "容器查询未命中：组件走默认窄态。断点依据的是虚线槽位宽度。";
+}
+
+widthInput.addEventListener("input", syncWidth);
+
+rtlBtn.addEventListener("click", () => {
+  const current = form.getAttribute("dir") === "rtl" ? "ltr" : "rtl";
+  form.setAttribute("dir", current);
+  document.documentElement.dir = current;
+  dirTag.textContent = "当前 dir=" + current;
+  rtlBtn.classList.toggle("active", current === "rtl");
+  rtlBtn.textContent = current === "rtl" ? "恢复 dir=ltr" : "切换 dir=rtl";
+});
+
+syncWidth();
+</script>
+</body>
+</html>

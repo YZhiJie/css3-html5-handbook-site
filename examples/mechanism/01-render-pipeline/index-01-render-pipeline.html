@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 01：渲染管线 · 一帧的五段与失效范围
+  ------------------------------------------------------------
+  【知识点】
+    1. JS → Style → Layout → Paint → Composite 的依赖顺序
+    2. 改 width/height 触发 Layout；改 transform/opacity 只触发合成
+    3. 用 rAF 统计帧间隔、掉帧率，用 longtask 观察主线程阻塞
+    4. 同一视觉效果（位移）用三种写法对比实际流畅度
+  【运行方式】
+    单文件、零网络、零外部资源；双击 file:// 即可运行。
+  【效果说明】
+    选择“width / left”“transform”“opacity”三种动画模式，
+    观察顶部管线高亮、平均帧间隔与掉帧数。方块越多，布局型
+    动画的掉帧越明显。点击“压力测试”把元素增加到 120 个。
+  【注意事项】
+    longtask 条目主要在 Chromium 系可用，其他浏览器显示 N/A；
+    帧率受设备与后台标签页影响，请保持页面在前台观察。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 01 · 渲染管线：从 DOM 到像素的一帧</title>
+<style>
+  :root {
+    --ink:#1f2a37; --muted:#667085; --line:#dbe3ec; --bg:#f3f6fa;
+    --card:#fff; --brand:#2563eb; --brand-soft:#e8efff;
+    --good:#15803d; --warn:#b45309; --poor:#b91c1c;
+    --radius:12px;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.6; padding:22px 16px 60px;
+  }
+  .wrap { max-width:1100px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:var(--muted); font-size:13.5px; margin-bottom:18px; }
+  .panel {
+    background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+    padding:16px; margin-bottom:16px;
+  }
+  .pipeline { display:flex; gap:8px; flex-wrap:wrap; }
+  .phase {
+    flex:1; min-width:120px; text-align:center; padding:10px 8px; border-radius:8px;
+    background:#eef2f7; color:var(--muted); font-size:13px; font-weight:600;
+    border:1px solid transparent; transition:background .15s,color .15s;
+  }
+  .phase small { display:block; font-weight:400; font-size:11.5px; margin-top:2px; }
+  .phase.on { background:var(--brand-soft); color:var(--brand); border-color:#bfd3ff; }
+  .phase.hot { background:#fff1f0; color:var(--poor); border-color:#f5c2c0; }
+  .modes { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  button {
+    font:inherit; font-size:13.5px; padding:8px 14px; border-radius:8px; cursor:pointer;
+    border:1px solid var(--line); background:#fff; color:var(--ink); transition:.15s;
+  }
+  button:hover { border-color:#b9c6d6; }
+  button.active { background:var(--brand); color:#fff; border-color:var(--brand); }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+  .stat { background:#f8fafc; border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .stat b { display:block; font-size:20px; font-variant-numeric:tabular-nums; }
+  .stat span { color:var(--muted); font-size:12px; }
+  .good { color:var(--good); } .warn { color:var(--warn); } .poor { color:var(--poor); }
+  .stage {
+    position:relative; height:360px; overflow:hidden; border-radius:10px;
+    background:linear-gradient(180deg,#f8fafc,#eef2f7); border:1px solid var(--line);
+  }
+  .tile {
+    position:absolute; width:56px; height:56px; border-radius:10px;
+    background:linear-gradient(135deg,#60a5fa,#2563eb); color:#fff;
+    display:grid; place-items:center; font-size:11px; font-weight:700;
+    left:0; top:0; will-change:auto;
+  }
+  .hint { color:var(--muted); font-size:12.5px; margin-top:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>渲染管线：从 DOM 到像素的一帧</h1>
+  <p class="sub">同一种“向右移动”的视觉效果，用不同属性写，触发的管线阶段完全不同。</p>
+
+  <div class="panel">
+    <div class="pipeline" id="pipeline">
+      <div class="phase" data-ph="js">JS<small>脚本 / rAF</small></div>
+      <div class="phase" data-ph="style">Style<small>样式计算</small></div>
+      <div class="phase" data-ph="layout">Layout<small>布局 / 重排</small></div>
+      <div class="phase" data-ph="paint">Paint<small>绘制 / 重绘</small></div>
+      <div class="phase" data-ph="composite">Composite<small>合成 / GPU</small></div>
+    </div>
+    <p class="hint" id="phaseText">当前模式：transform —— 只触发 Composite，布局与绘制可复用。</p>
+  </div>
+
+  <div class="panel">
+    <div class="modes">
+      <button data-mode="width">width / left（触发布局）</button>
+      <button data-mode="transform" class="active">transform（只合成）</button>
+      <button data-mode="opacity">opacity（只合成）</button>
+      <button id="stress">压力测试：120 个元素</button>
+      <button id="reset">重置：40 个元素</button>
+    </div>
+    <div class="stage" id="stage" aria-label="动画舞台"></div>
+    <div class="stats" style="margin-top:14px">
+      <div class="stat"><b id="fps">–</b><span>平均 FPS</span></div>
+      <div class="stat"><b id="interval">–</b><span>平均帧间隔 (ms)</span></div>
+      <div class="stat"><b id="dropped">–</b><span>掉帧数（>20ms）</span></div>
+      <div class="stat"><b id="longtask">–</b><span>长任务（>50ms）</span></div>
+    </div>
+    <p class="hint">
+      观察要点：元素越多，width/left 模式的帧间隔越大；transform/opacity 模式的帧间隔基本稳定。
+      打开 DevTools Performance 勾选 Layout，可直接看到 width 模式每帧都有紫色 Layout 条。
+    </p>
+  </div>
+</div>
+
+<script>
+"use strict";
+const stage = document.getElementById("stage");
+const phaseEls = [...document.querySelectorAll(".phase")];
+const phaseText = document.getElementById("phaseText");
+const modeBtns = [...document.querySelectorAll("[data-mode]")];
+const fpsEl = document.getElementById("fps");
+const intervalEl = document.getElementById("interval");
+const droppedEl = document.getElementById("dropped");
+const longEl = document.getElementById("longtask");
+
+let mode = "transform";
+let tiles = [];
+let count = 40;
+let frames = [];
+let dropped = 0;
+let longTasks = 0;
+let rafId = 0;
+let start = 0;
+
+function build(n) {
+  count = n;
+  stage.innerHTML = "";
+  tiles = [];
+  const cols = Math.max(4, Math.ceil(Math.sqrt(n * 1.6)));
+  for (let i = 0; i < n; i++) {
+    const el = document.createElement("div");
+    el.className = "tile";
+    el.textContent = String(i + 1);
+    el.style.left = (4 + (i % cols) * 62) + "px";
+    el.style.top = (6 + Math.floor(i / cols) * 62) + "px";
+    stage.appendChild(el);
+    tiles.push({ el, x: 0, dir: 1, speed: 0.8 + (i % 5) * 0.12 });
+  }
+}
+
+function highlight(list, hot) {
+  phaseEls.forEach((el) => {
+    const on = list.includes(el.dataset.ph);
+    el.classList.toggle("on", on);
+    el.classList.toggle("hot", hot && el.dataset.ph === "layout");
+  });
+}
+
+function setMode(next) {
+  mode = next;
+  modeBtns.forEach((b) => b.classList.toggle("active", b.dataset.mode === next));
+  // 切换模式时清掉另一套几何/透明度写法，避免叠加造成视觉误判
+  for (const t of tiles) {
+    t.el.style.opacity = "1";
+    if (next !== "width") t.el.style.left = "0px";
+  }
+  if (next === "width") {
+    highlight(["js", "style", "layout", "paint", "composite"], true);
+    phaseText.textContent = "当前模式：width / left —— 每帧都要重新布局、重绘，主线程压力最大。";
+  } else if (next === "transform") {
+    highlight(["js", "composite"], false);
+    phaseText.textContent = "当前模式：transform —— 布局与绘制结果可复用，只改变换矩阵。";
+  } else {
+    highlight(["js", "composite"], false);
+    phaseText.textContent = "当前模式：opacity —— 只改变图层透明度，属于合成友好属性。";
+  }
+}
+
+function frame(now) {
+  if (!start) start = now;
+  const dt = now - (frame.last || now);
+  frame.last = now;
+  if (dt > 0 && dt < 200) {
+    frames.push(dt);
+    if (frames.length > 90) frames.shift();
+    if (dt > 20) dropped++;
+    const avg = frames.reduce((a, b) => a + b, 0) / frames.length;
+    fpsEl.textContent = (1000 / avg).toFixed(1);
+    fpsEl.className = avg > 22 ? "poor" : avg > 18 ? "warn" : "good";
+    intervalEl.textContent = avg.toFixed(2);
+    droppedEl.textContent = String(dropped);
+  }
+
+  const w = stage.clientWidth;
+  for (const t of tiles) {
+    t.x += t.dir * t.speed;
+    if (t.x > w - 60 || t.x < 0) { t.dir *= -1; t.x = Math.max(0, Math.min(w - 60, t.x)); }
+    if (mode === "width") {
+      t.el.style.transform = "none";
+      t.el.style.opacity = "1";
+      t.el.style.left = t.x + "px";           // 改布局属性
+    } else if (mode === "transform") {
+      t.el.style.left = "0px";
+      t.el.style.opacity = "1";
+      t.el.style.transform = "translateX(" + t.x + "px)";
+    } else {
+      t.el.style.left = "0px";
+      t.el.style.opacity = String(0.35 + 0.6 * Math.abs(t.x / Math.max(1, w - 60)));
+      t.el.style.transform = "translateX(" + t.x + "px)";
+    }
+  }
+  rafId = requestAnimationFrame(frame);
+}
+
+if ("PerformanceObserver" in window) {
+  try {
+    new PerformanceObserver((list) => {
+      longTasks += list.getEntries().length;
+      longEl.textContent = String(longTasks);
+      longEl.className = longTasks > 3 ? "poor" : "good";
+    }).observe({ type: "longtask", buffered: true });
+  } catch (e) {
+    longEl.textContent = "N/A";
+  }
+} else {
+  longEl.textContent = "N/A";
+}
+
+modeBtns.forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+document.getElementById("stress").addEventListener("click", () => build(120));
+document.getElementById("reset").addEventListener("click", () => build(40));
+
+build(40);
+setMode("transform");
+rafId = requestAnimationFrame(frame);
+
+window.addEventListener("beforeunload", () => cancelAnimationFrame(rafId));
+</script>
+</body>
+</html>

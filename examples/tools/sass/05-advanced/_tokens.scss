@@ -1,0 +1,82 @@
+// _tokens.scss —— Mini Design System 设计令牌
+// 纯变量层，不产出任何 CSS
+// 这个文件是整个系统的"单一事实源"
+
+// ─── 颜色令牌 ───
+// 原始色 + light/dark 变体用 Sass 颜色函数计算，保证一致性
+$color-brand: #3b82f6;
+$color-brand-dark: #2563eb;
+$color-success: #10b981;
+$color-danger: #ef4444;
+$color-warning: #f59e0b;
+
+$color-text: #1f2937;
+$color-muted: #6b7280;
+$color-disabled: #9ca3af;
+$color-border: #e5e7eb;
+$color-bg: #ffffff;
+$color-bg-subtle: #f3f4f6;
+$color-bg-hover: #eef2ff;
+
+// 语义色映射（给组件消费用，避免到处用原始变量）
+$semantic: (
+  'primary': $color-brand,
+  'primary-dark': $color-brand-dark,
+  'success': $color-success,
+  'danger':  $color-danger,
+  'warning': $color-warning,
+  'text':    $color-text,
+  'muted':   $color-muted,
+  'border':  $color-border,
+  'bg':      $color-bg,
+  'bg-subtle': $color-bg-subtle,
+);
+
+// ─── 间距令牌（4pt 网格） ───
+$space-1: 4px;
+$space-2: 8px;
+$space-3: 12px;
+$space-4: 16px;
+$space-5: 20px;
+$space-6: 24px;
+$space-8: 32px;
+$space-10: 40px;
+$space-12: 48px;
+$space-16: 64px;
+
+$spacing-map: (
+  0: 0px, 1: $space-1, 2: $space-2, 3: $space-3, 4: $space-4,
+  5: $space-5, 6: $space-6, 8: $space-8, 10: $space-10,
+  12: $space-12, 16: $space-16,
+);
+
+// ─── 圆角令牌 ───
+$radius-xs: 4px;
+$radius-sm: 6px;
+$radius-md: 10px;
+$radius-lg: 16px;
+$radius-xl: 24px;
+
+// ─── 阴影令牌 ───
+$shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+$shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.06);
+$shadow-md: 0 4px 16px rgba(0, 0, 0, 0.10);
+$shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.14);
+
+// ─── 断点令牌 ───
+$bp-sm: 576px;
+$bp-md: 768px;
+$bp-lg: 1024px;
+$bp-xl: 1280px;
+
+$breakpoints: (
+  'sm': $bp-sm,
+  'md': $bp-md,
+  'lg': $bp-lg,
+  'xl': $bp-xl,
+);
+
+// ─── 字体栈 ───
+$font-sans: system-ui, -apple-system, "Segoe UI", Roboto,
+            "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+$font-mono: "JetBrains Mono", "Fira Code", "Menlo", "Monaco", monospace;

@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tailwind v4 @utility & @variant 实战</title>
+
+<style>
+  @import "tailwindcss";
+
+  /* ========== @utility：自定义工具类 ========== */
+
+  /* 三档 text-shadow */
+  @utility text-shadow-sm { text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); }
+  @utility text-shadow-md { text-shadow: 0 2px 4px rgba(0, 0, 0, 0.15); }
+  @utility text-shadow-lg { text-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); }
+
+  /* gradient-text：彩虹渐变文字 */
+  @utility gradient-text {
+    background-image: linear-gradient(
+      to right,
+      #6366f1,    /* indigo */
+      #8b5cf6,    /* violet */
+      #d946ef,    /* fuchsia */
+      #ec4899     /* pink */
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* hero-bg：半透明深色渐变（适合叠加图片上方） */
+  @utility hero-overlay {
+    background-image: linear-gradient(
+      135deg,
+      rgba(0, 0, 0, 0.6),
+      rgba(0, 0, 0, 0.3)
+    );
+  }
+
+  /* subtle-glow：柔和光晕 */
+  @utility subtle-glow {
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.05),
+      0 1px 2px rgba(0, 0, 0, 0.05),
+      0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+
+  /* ========== @variant：自定义前缀 ========== */
+
+  /* fancy：hover 时元素放大 */
+  @variant fancy {
+    &:hover {
+      transform: scale(1.05);
+      transition: transform 0.2s ease-out;
+    }
+  }
+
+  /* touch：触摸设备上的特殊样式 */
+  @variant touch {
+    @media (pointer: coarse);
+  }
+
+  /* portrait：竖屏设备 */
+  @variant portrait {
+    @media (orientation: portrait);
+  }
+
+  body {
+    font-family: "Inter", "Noto Sans SC", system-ui, sans-serif;
+  }
+</style>
+</head>
+
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+  <div class="max-w-4xl mx-auto p-6">
+
+    <h1 class="text-2xl font-bold mb-1">🛠️ Tailwind v4 @utility & @variant 实战</h1>
+    <p class="text-slate-500 text-sm mb-8">
+      这个文件<strong>没有任何外部 JS 插件</strong>——所有扩展都是纯 CSS at-rule 写的。
+      双击 HTML 文件即可运行。
+    </p>
+
+    <!-- ========== 1. text-shadow 系列 ========== -->
+    <section class="mb-10">
+      <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-blue-500"></span>
+        1. @utility 定义 text-shadow 系列
+      </h2>
+
+      <div class="bg-slate-800 rounded-lg p-8 mb-4">
+        <p class="text-white text-shadow-sm mb-2">text-shadow-sm — 细小阴影</p>
+        <p class="text-white text-shadow-md mb-2">text-shadow-md — 中等阴影</p>
+        <p class="text-white text-shadow-lg mb-2">text-shadow-lg — 大阴影</p>
+      </div>
+
+      <pre class="text-xs bg-slate-100 p-3 rounded overflow-x-auto"><code><span class="cm">/* 在 CSS 的 @import 之后定义 */</span>
+@utility text-shadow-sm { text-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+@utility text-shadow-md { text-shadow: 0 2px 4px rgba(0,0,0,0.15); }
+@utility text-shadow-lg { text-shadow: 0 4px 8px rgba(0,0,0,0.2); }</code></pre>
+    </section>
+
+    <!-- ========== 2. gradient-text ========== -->
+    <section class="mb-10">
+      <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-fuchsia-500"></span>
+        2. @utility gradient-text — 彩虹渐变文字
+      </h2>
+
+      <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-8 mb-4">
+        <h3 class="text-5xl font-bold gradient-text">Hello Tailwind v4 ✨</h3>
+        <p class="text-slate-500 mt-4">这是一个自定义工具类，一次性实现渐变背景 + clip-text + transparent。</p>
+      </div>
+
+      <pre class="text-xs bg-slate-100 p-3 rounded overflow-x-auto"><code>@utility gradient-text {
+  background-image: linear-gradient(to right, #6366f1, #8b5cf6, #d946ef, #ec4899);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}</code></pre>
+    </section>
+
+    <!-- ========== 3. fancy 变体 ========== -->
+    <section class="mb-10">
+      <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+        3. @variant fancy — 自定义前缀
+      </h2>
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+        <button class="bg-blue-500 text-white px-4 py-2 rounded fancy">
+          hover 放大
+        </button>
+        <button class="bg-emerald-500 text-white px-4 py-2 rounded fancy">
+          hover 放大
+        </button>
+        <button class="bg-amber-500 text-white px-4 py-2 rounded fancy">
+          hover 放大
+        </button>
+        <button class="bg-rose-500 text-white px-4 py-2 rounded fancy">
+          hover 放大
+        </button>
+      </div>
+
+      <pre class="text-xs bg-slate-100 p-3 rounded overflow-x-auto"><code>@variant fancy {
+  &:hover {
+    transform: scale(1.05);
+    transition: transform 0.2s ease-out;
+  }
+}
+
+<span class="cm">/* 用法：fancy 是一个"变体"，里面定义了 hover 条件 + 属性 */</span>
+<span class="cm">/* 直接写 fancy 即可触发 */</span>
+&lt;button class="bg-blue-500 text-white px-4 py-2 rounded fancy"&gt;</code></pre>
+    </section>
+
+    <!-- ========== 4. 组合 fancy + 任意变体 ========== -->
+    <section class="mb-10">
+      <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+        4. 组合：fancy + 响应式 + dark
+      </h2>
+
+      <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
+        <div class="flex flex-wrap gap-3">
+          <button class="bg-blue-500 hover:bg-blue-600 active:scale-95
+                          md:bg-purple-500 dark:bg-slate-700 dark:hover:bg-slate-600
+                          fancy
+                          text-white px-4 py-2 rounded-lg">
+            多种前缀叠加
+          </button>
+
+          <button class="
+            /* 响应式：移动端小按钮 */
+            px-3 py-1.5 text-sm
+            md:px-5 md:py-2.5 md:text-base
+            /* 伪状态 */
+            bg-slate-200 hover:bg-slate-300 active:scale-95
+            /* 暗黑模式 */
+            dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-white
+            /* 自定义 fancy 变体 */
+            fancy
+            /* 任意变体：hover 时加圆角 */
+            [&:hover]:rounded-full
+            /* 工具类 */
+            rounded-lg font-medium">
+            按钮
+          </button>
+        </div>
+        <p class="text-xs text-slate-500 mt-4">
+          💡 工具类 + 响应式前缀 + 伪状态 + dark + 自定义 @variant fancy + 任意变体
+          <code class="bg-slate-100 px-1 rounded">[&:hover]:rounded-full</code>
+          —— v4 里一切都可以自由组合。
+        </p>
+      </div>
+    </section>
+
+    <!-- ========== 5. subtle-glow 工具类 ========== -->
+    <section class="mb-10">
+      <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-teal-500"></span>
+        5. subtle-glow — 复合 box-shadow
+      </h2>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+        <div class="bg-white rounded-lg p-6 subtle-glow text-center">
+          <div class="text-2xl">✨</div>
+          <div class="mt-2 font-semibold">subtle-glow</div>
+          <div class="text-xs text-slate-500 mt-1">柔和光晕，适合卡片</div>
+        </div>
+        <div class="bg-white rounded-lg p-6 shadow-md text-center">
+          <div class="text-2xl">📦</div>
+          <div class="mt-2 font-semibold">shadow-md</div>
+          <div class="text-xs text-slate-500 mt-1">内置阴影（硬）</div>
+        </div>
+        <div class="bg-white rounded-lg p-6 shadow-lg text-center">
+          <div class="text-2xl">💎</div>
+          <div class="mt-2 font-semibold">shadow-lg</div>
+          <div class="text-xs text-slate-500 mt-1">内置阴影（更硬）</div>
+        </div>
+      </div>
+
+      <pre class="text-xs bg-slate-100 p-3 rounded overflow-x-auto"><code>@utility subtle-glow {
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.05),   <span class="cm">/* 细微边框 */</span>
+    0 1px 2px rgba(0,0,0,0.05),    <span class="cm">/* 紧贴投影 */</span>
+    0 4px 12px rgba(0,0,0,0.08);   <span class="cm">/* 柔和光晕 */</span>
+}</code></pre>
+    </section>
+
+    <!-- ========== 6. 变体与工具类的区别 ========== -->
+    <section class="bg-blue-50 rounded-lg border border-blue-200 p-5">
+      <h3 class="font-semibold text-blue-800 mb-2">💡 @variant vs @utility</h3>
+      <p class="text-sm text-blue-700 leading-relaxed">
+        <strong>@utility</strong> = 一条/一组 CSS 属性（"是什么"）；<br>
+        <strong>@variant</strong> = 什么时候生效（"在什么条件下"）。<br><br>
+        两者可以组合：<code class="bg-blue-100 px-1 rounded text-xs">fancy:bg-blue-500</code>
+        读作"当 fancy 条件满足时，应用 bg-blue-500 这个工具类"。
+      </p>
+    </section>
+
+  </div>
+
+<!-- ========== Play CDN ========== -->
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.1"></script>
+</body>
+</html>

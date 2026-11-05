@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 05：渲染时序 · rAF、ResizeObserver 循环与任务切分
+  ------------------------------------------------------------
+  【知识点】
+    1. rAF 在样式/布局之前执行，适合写动画样式
+    2. ResizeObserver 回调里改被观察元素尺寸会触发循环，
+       浏览器报 “ResizeObserver loop …” 错误
+    3. 同步长任务阻塞输入；分片任务能显著降低点击延迟
+    4. requestIdleCallback / scheduler.yield 的降级写法
+  【运行方式】
+    单文件、零网络、零外部资源；双击 file:// 即可运行。
+  【效果说明】
+    顶部小球跟随 rAF 旋转；点击“响应测试按钮”显示输入延迟。
+    点击“同步长任务”会明显卡住按钮；点击“分片任务”则保持响应。
+    下方 ResizeObserver 演示可切换“危险/安全”回调。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 05 · 渲染时序与任务切分</title>
+<style>
+  :root {
+    --ink:#1f2a37; --muted:#667085; --line:#dbe3ec; --bg:#f3f6fa; --card:#fff;
+    --brand:#2563eb; --good:#15803d; --warn:#b45309; --poor:#b91c1c;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.6; padding:22px 16px 60px;
+  }
+  .wrap { max-width:1040px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:var(--muted); font-size:13.5px; margin-bottom:18px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  h2 { font-size:16px; margin-bottom:10px; }
+  .controls { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  button {
+    font:inherit; font-size:13.5px; padding:8px 14px; border-radius:8px; cursor:pointer;
+    border:1px solid var(--line); background:#fff; color:var(--ink);
+  }
+  button.active { background:var(--brand); color:#fff; border-color:var(--brand); }
+  .clock { position:relative; height:180px; border-radius:10px; background:#f8fafc; border:1px solid var(--line); overflow:hidden; }
+  .dot {
+    position:absolute; left:50%; top:50%; width:26px; height:26px; margin:-13px 0 0 -13px;
+    border-radius:50%; background:var(--brand); box-shadow:0 6px 16px rgb(37 99 235 / .35);
+  }
+  .center { position:absolute; left:50%; top:50%; width:8px; height:8px; margin:-4px 0 0 -4px; border-radius:50%; background:#cbd5e1; }
+  .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:12px; }
+  .stat { background:#f8fafc; border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .stat b { display:block; font-size:20px; font-variant-numeric:tabular-nums; }
+  .stat span { color:var(--muted); font-size:12px; }
+  .ro-box {
+    width:200px; height:96px; border-radius:8px; background:#dbeafe; border:1px solid #bfdbfe;
+    display:grid; place-items:center; font-size:13px; color:#1e40af; transition:width .2s;
+  }
+  pre {
+    background:#0f172a; color:#cbd5e1; padding:12px; border-radius:8px; overflow:auto;
+    font-size:12.5px; line-height:1.7; margin-top:12px; max-height:150px;
+  }
+  .tip { color:var(--muted); font-size:12.5px; margin-top:10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>渲染时序：rAF、ResizeObserver 循环与任务切分</h1>
+  <p class="sub">“卡住”不是算得慢，而是主线程没有机会让出。</p>
+
+  <div class="panel">
+    <h2>① rAF：对齐帧的动画</h2>
+    <div class="clock" id="clock">
+      <div class="center"></div>
+      <div class="dot" id="dot"></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="rafFps">–</b><span>rAF 帧率</span></div>
+      <div class="stat"><b id="rafInterval">–</b><span>帧间隔 (ms)</span></div>
+      <div class="stat"><b id="launch">0</b><span>rAF 回调次数</span></div>
+    </div>
+    <p class="tip">rAF 回调里只写 transform，不在中途读取布局；这样一帧只布局一次。</p>
+  </div>
+
+  <div class="panel">
+    <h2>② 长任务 vs 分片任务：输入延迟</h2>
+    <div class="controls">
+      <button id="clickTest">响应测试：点我测延迟</button>
+      <button id="syncTask">同步长任务（约 600ms）</button>
+      <button id="chunkTask" class="active">分片任务（每片 ~8ms）</button>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="clickLatency">–</b><span>最近点击延迟 (ms)</span></div>
+      <div class="stat"><b id="taskCost">–</b><span>本轮总耗时 (ms)</span></div>
+      <div class="stat"><b id="yieldCount">0</b><span>让出次数</span></div>
+    </div>
+    <pre id="log">点击“同步长任务”后立即连续点击“响应测试”，观察延迟差异。</pre>
+    <p class="tip">总计算量相同；区别是长任务期间事件回调必须排队。</p>
+  </div>
+
+  <div class="panel">
+    <h2>③ ResizeObserver 循环</h2>
+    <div class="controls">
+      <button id="danger" class="active">危险：回调里改宽度</button>
+      <button id="safe">安全：下一帧再写</button>
+      <button id="resetRo">重置</button>
+    </div>
+    <div class="ro-box" id="roBox">观察目标</div>
+    <pre id="roLog">等待观察…</pre>
+    <p class="tip">
+      危险模式在回调里直接修改被观察元素的宽度，浏览器可能抛出
+      “ResizeObserver loop completed with undelivered notifications”。
+      安全模式只记录尺寸，写入放到 rAF，并做幂等判断。
+    </p>
+  </div>
+</div>
+
+<script>
+"use strict";
+const dot = document.getElementById("dot");
+const rafFps = document.getElementById("rafFps");
+const rafInterval = document.getElementById("rafInterval");
+const launchEl = document.getElementById("launch");
+const clickLatencyEl = document.getElementById("clickLatency");
+const taskCostEl = document.getElementById("taskCost");
+const yieldCountEl = document.getElementById("yieldCount");
+const log = document.getElementById("log");
+const roBox = document.getElementById("roBox");
+const roLog = document.getElementById("roLog");
+
+/* ---------- rAF ---------- */
+let angle = 0;
+let frameCount = 0;
+let lastTs = 0;
+let rafFrames = [];
+const clock = document.getElementById("clock");
+
+function render(now) {
+  const dt = now - (lastTs || now);
+  lastTs = now;
+  if (dt > 0 && dt < 200) {
+    rafFrames.push(dt);
+    if (rafFrames.length > 80) rafFrames.shift();
+    const avg = rafFrames.reduce((a, b) => a + b, 0) / rafFrames.length;
+    rafFps.textContent = (1000 / avg).toFixed(1);
+    rafInterval.textContent = avg.toFixed(2);
+  }
+  frameCount++;
+  launchEl.textContent = String(frameCount);
+  angle += 0.035;
+  const r = Math.min(clock.clientWidth, clock.clientHeight) / 2 - 28;
+  const x = Math.cos(angle) * r;
+  const y = Math.sin(angle) * r;
+  dot.style.transform = "translate(" + x + "px," + y + "px)";
+  requestAnimationFrame(render);
+}
+requestAnimationFrame(render);
+
+/* ---------- 点击延迟 ---------- */
+let pendingClickAt = 0;
+document.getElementById("clickTest").addEventListener("click", () => {
+  const now = performance.now();
+  if (pendingClickAt) {
+    const latency = now - pendingClickAt;
+    clickLatencyEl.textContent = latency.toFixed(1);
+    clickLatencyEl.style.color = latency > 100 ? "var(--poor)" : latency > 50 ? "var(--warn)" : "var(--good)";
+    pendingClickAt = 0;
+  } else {
+    pendingClickAt = now;
+    clickLatencyEl.textContent = "已打点，请再点一次";
+  }
+});
+// 页面任意位置点击都记录，方便在长任务期间点击
+document.addEventListener("pointerdown", () => {
+  if (!pendingClickAt) pendingClickAt = performance.now();
+});
+
+/* ---------- 任务 ---------- */
+function burn(ms) {
+  const end = performance.now() + ms;
+  let n = 0;
+  while (performance.now() < end) {
+    n += Math.sqrt(n + 1);
+  }
+  return n;
+}
+
+document.getElementById("syncTask").addEventListener("click", (e) => {
+  e.target.classList.remove("active");
+  const t0 = performance.now();
+  log.textContent = "同步任务开始…";
+  // 让日志先渲染一帧，再阻塞
+  requestAnimationFrame(() => {
+    burn(600);
+    const cost = performance.now() - t0;
+    taskCostEl.textContent = cost.toFixed(0);
+    log.textContent = "同步任务结束：主线程被占用 " + cost.toFixed(0) + "ms。刚才的点击会排队。";
+  });
+});
+
+document.getElementById("chunkTask").addEventListener("click", async (e) => {
+  e.target.classList.add("active");
+  const t0 = performance.now();
+  let yields = 0;
+  const total = 600;
+  let spent = 0;
+  log.textContent = "分片任务开始…";
+  while (spent < total) {
+    const slice = performance.now();
+    burn(8);
+    spent += performance.now() - slice;
+    yields++;
+    yieldCountEl.textContent = String(yields);
+    await new Promise((r) => requestAnimationFrame(r));
+  }
+  const cost = performance.now() - t0;
+  taskCostEl.textContent = cost.toFixed(0);
+  log.textContent = "分片任务结束：计算约 " + total + "ms，但每 8ms 让出一次，点击不再排队。";
+  e.target.classList.remove("active");
+});
+
+/* ---------- ResizeObserver ---------- */
+let roMode = "danger";
+let widthStep = 0;
+let roLoopGuard = 0;
+const ro = new ResizeObserver((entries) => {
+  const w = entries[0].contentRect.width;
+  roLog.textContent = "回调收到宽度：" + w.toFixed(1) + "px（模式：" + roMode + "）\n";
+  if (roMode === "danger") {
+    // 故意在回调里改被观察元素尺寸：可能触发循环
+    roBox.style.width = (200 + (widthStep++ % 6) * 6) + "px";
+    roLoopGuard++;
+    if (roLoopGuard > 30) {
+      roLog.textContent += "已连续触发 30 次，停止写入以避免死循环。\n";
+      roMode = "safe";
+    }
+  } else {
+    requestAnimationFrame(() => {
+      // 安全模式：下一帧再写，并做幂等判断
+      const next = 200 + (widthStep++ % 6) * 6;
+      if (Math.abs(roBox.offsetWidth - next) > 1) roBox.style.width = next + "px";
+    });
+  }
+});
+
+window.addEventListener("error", (e) => {
+  if (e.message && e.message.includes("ResizeObserver")) {
+    roLog.textContent += "捕获到浏览器循环错误：\n" + e.message + "\n";
+  }
+});
+
+document.getElementById("danger").addEventListener("click", (e) => {
+  roMode = "danger";
+  roLoopGuard = 0;
+  e.target.classList.add("active");
+  document.getElementById("safe").classList.remove("active");
+});
+document.getElementById("safe").addEventListener("click", (e) => {
+  roMode = "safe";
+  e.target.classList.add("active");
+  document.getElementById("danger").classList.remove("active");
+});
+document.getElementById("resetRo").addEventListener("click", () => {
+  roBox.style.width = "200px";
+  widthStep = 0;
+  roLoopGuard = 0;
+  roLog.textContent = "已重置，等待观察…";
+});
+
+ro.observe(roBox);
+</script>
+</body>
+</html>

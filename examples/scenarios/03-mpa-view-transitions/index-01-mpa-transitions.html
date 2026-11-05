@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 03：MPA 级转场 · View Transitions + Speculation Rules
+  ------------------------------------------------------------
+  【知识点】
+    1. 跨文档 View Transitions 用 @view-transition { navigation:auto }
+    2. view-transition-name 让新旧页面的同名元素做形变插值
+    3. Speculation Rules 用 JSON 声明预取/预渲染规则
+    4. 不支持时自动降级为普通导航，功能不受影响
+  【运行方式】
+    单文件、零网络、零外部资源；双击 file:// 即可运行。
+  【效果说明】
+    单文件内模拟“列表页 ↔ 详情页”导航：点击卡片，封面与
+    标题从列表位置形变到详情页位置（同文档 startViewTransition）。
+    下方展示 Speculation Rules 配置与预取命中模拟日志。
+  【注意事项】
+    真正的跨文档转场需要多页站点与 http(s)；file:// 与部分
+    浏览器会自动走无动画降级路径，示例仍可切换内容。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 03 · MPA 级转场</title>
+<style>
+  :root {
+    --ink:#1f2a37; --muted:#667085; --line:#dbe3ec; --bg:#f3f6fa; --card:#fff;
+    --brand:#2563eb; --accent:#7c3aed; --good:#15803d;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.6; padding:22px 16px 60px;
+  }
+  .wrap { max-width:1080px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:var(--muted); font-size:13.5px; margin-bottom:18px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  h2 { font-size:16px; margin-bottom:10px; }
+  button {
+    font:inherit; font-size:13.5px; padding:8px 14px; border-radius:8px; cursor:pointer;
+    border:1px solid var(--line); background:#fff; color:var(--ink);
+  }
+  button.primary { background:var(--brand); color:#fff; border-color:var(--brand); }
+
+  .viewport {
+    position:relative; min-height:360px; border-radius:10px; overflow:hidden;
+    background:#f8fafc; border:1px solid var(--line); padding:20px;
+  }
+  .page { display:grid; gap:14px; }
+  .page[hidden] { display:none; }
+  .list { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+  .item {
+    padding:12px; border:1px solid var(--line); border-radius:10px; background:#fff;
+    cursor:pointer; transition:transform .18s ease, box-shadow .18s ease;
+  }
+  .item:hover { transform:translateY(-2px); box-shadow:0 10px 24px rgb(15 23 42 / .1); }
+  .cover {
+    block-size:110px; border-radius:8px;
+    background:linear-gradient(135deg,#93c5fd,#2563eb);
+    display:grid; place-items:center; color:#fff; font-weight:700;
+    view-transition-name:article-cover;
+  }
+  .cover--alt { background:linear-gradient(135deg,#c4b5fd,#7c3aed); }
+  .cover--green { background:linear-gradient(135deg,#86efac,#15803d); }
+  .item h3 { font-size:14px; margin-top:8px; }
+  .item p { font-size:12px; color:var(--muted); }
+  .detail h2 { font-size:20px; view-transition-name:article-title; }
+  .detail .cover { block-size:180px; margin-block-end:14px; }
+  .detail p { color:var(--muted); font-size:13.5px; }
+  .back { margin-top:14px; }
+
+  .log {
+    background:#0f172a; color:#cbd5e1; padding:12px; border-radius:8px;
+    font-size:12.5px; line-height:1.7; max-height:180px; overflow:auto;
+  }
+  .rule { background:#0f172a; color:#cbd5e1; padding:12px; border-radius:8px; font-size:12.5px; overflow:auto; }
+  .rule .k { color:#22d3ee; } .rule .s { color:#fbbf24; }
+  .note { font-size:12.5px; color:var(--muted); margin-top:10px; }
+
+  ::view-transition-old(root) { animation:fade-out .18s ease both; }
+  ::view-transition-new(root) { animation:fade-in .24s ease both; }
+  ::view-transition-group(article-cover) { animation-duration:.42s; animation-timing-function:cubic-bezier(.22,1,.36,1); }
+  @keyframes fade-out { to { opacity:0; } }
+  @keyframes fade-in { from { opacity:0; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>MPA 级转场：View Transitions + Speculation Rules</h1>
+  <p class="sub">转场负责“看起来连续”，预取负责“点下去之前就准备好”。</p>
+
+  <div class="panel">
+    <h2>① 模拟导航：列表页 → 详情页</h2>
+    <div class="viewport" id="viewport">
+      <section class="page" id="listPage">
+        <div class="list">
+          <article class="item" data-id="1">
+            <div class="cover">封面 01</div>
+            <h3>渲染管线拆解</h3>
+            <p>从 DOM 到像素的五段</p>
+          </article>
+          <article class="item" data-id="2">
+            <div class="cover cover--alt">封面 02</div>
+            <h3>包含块与 BFC</h3>
+            <p>角标为什么跑偏</p>
+          </article>
+          <article class="item" data-id="3">
+            <div class="cover cover--green">封面 03</div>
+            <h3>任务切分</h3>
+            <p>让主线程学会呼吸</p>
+          </article>
+        </div>
+        <p class="note">点击任意卡片，观察封面与标题的连续形变。支持 View Transitions 的浏览器会播放动画。</p>
+      </section>
+
+      <section class="page detail" id="detailPage" hidden>
+        <div class="cover cover--alt">文章封面</div>
+        <h2 id="detailTitle">包含块与 BFC</h2>
+        <p>绝对定位的参照系不是“最近的有定位的元素”这么简单：transform、filter、contain:paint 都会创建包含块。动画一加，布局契约就可能被改写。</p>
+        <button class="back" id="back">← 返回列表</button>
+      </section>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>② Speculation Rules 配置</h2>
+    <div class="rule"><pre style="margin:0"><span class="k">&lt;script</span> <span class="s">type="speculationrules"</span><span class="k">&gt;</span>
+{
+  "prerender": [
+    { "where": { "href_matches": "/articles/*" },
+      "eagerness": "moderate" }
+  ],
+  "prefetch": [
+    { "where": { "href_matches": "/docs/*" },
+      "eagerness": "conservative" }
+  ]
+}
+<span class="k">&lt;/script&gt;</span></pre></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+      <button id="simPrefetch">模拟：预取命中</button>
+      <button id="simMiss">模拟：预取未命中</button>
+      <button id="clearLog">清空日志</button>
+    </div>
+    <div class="log" id="log" style="margin-top:12px">等待模拟…</div>
+    <p class="note">
+      预取把网络等待提前到用户犹豫时；命中时导航可省 100–300ms。
+      eagerness 越高命中率越高，但会消耗更多流量与 CPU。
+    </p>
+  </div>
+</div>
+
+<script>
+"use strict";
+const listPage = document.getElementById("listPage");
+const detailPage = document.getElementById("detailPage");
+const detailTitle = document.getElementById("detailTitle");
+const log = document.getElementById("log");
+const viewport = document.getElementById("viewport");
+
+function swap(toDetail, title) {
+  const apply = () => {
+    listPage.hidden = toDetail;
+    detailPage.hidden = !toDetail;
+    if (title) detailTitle.textContent = title;
+  };
+  if (!document.startViewTransition) {
+    apply();
+    log.textContent += "\n当前浏览器不支持 View Transitions，已走无动画降级。";
+    return;
+  }
+  document.startViewTransition(apply);
+}
+
+document.querySelectorAll(".item").forEach((item) => {
+  item.addEventListener("click", () => {
+    const title = item.querySelector("h3").textContent;
+    swap(true, title);
+    log.textContent += "\n→ 打开《" + title + "》：封面与标题作为命名元素参与形变。";
+  });
+});
+
+document.getElementById("back").addEventListener("click", () => {
+  swap(false);
+  log.textContent += "\n← 返回列表：同一命名元素反向插值。";
+});
+
+document.getElementById("simPrefetch").addEventListener("click", () => {
+  log.textContent += "\n预取命中：/articles/xxx 已在隐藏页预渲染，导航耗时约 80ms。";
+});
+document.getElementById("simMiss").addEventListener("click", () => {
+  log.textContent += "\n预取未命中：需等待网络与首帧，导航耗时约 420ms。";
+});
+document.getElementById("clearLog").addEventListener("click", () => {
+  log.textContent = "等待模拟…";
+});
+
+// 跨文档写法（真实 MPA 使用）：
+// @view-transition { navigation: auto; }
+// 本示例用同文档 startViewTransition 模拟，便于单文件验证。
+log.textContent = document.startViewTransition
+  ? "当前浏览器支持 View Transitions，可播放形变。"
+  : "当前浏览器不支持 View Transitions，将无动画切换（功能仍可用）。";
+</script>
+</body>
+</html>

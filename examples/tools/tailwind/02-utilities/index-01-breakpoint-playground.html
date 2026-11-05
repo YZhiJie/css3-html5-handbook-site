@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tailwind v4 断点 & 任意值 & 任意变体 Playground</title>
+
+<style>
+  @import "tailwindcss";
+
+  /* 给这个示例加点自定义断点提示色 */
+  @theme inline {
+    --color-play-zone: var(--play-zone, #da373d);
+  }
+
+  body {
+    font-family: "Inter", "Noto Sans SC", system-ui, sans-serif;
+  }
+
+  /* 断点提示条 */
+  .bp-indicator {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+    transition: background 0.3s;
+  }
+</style>
+</head>
+
+<body class="bg-slate-50 text-slate-800 min-h-screen pt-10">
+
+  <!-- ========== 断点提示条（会随视口宽度变色） ========== -->
+  <div class="bp-indicator h-1 transition-colors duration-300
+              bg-blue-400
+              sm:bg-green-400
+              md:bg-amber-400
+              lg:bg-rose-400
+              xl:bg-purple-400
+              2xl:bg-slate-800"></div>
+
+  <div class="max-w-5xl mx-auto p-6">
+
+    <h1 class="text-2xl font-bold mb-1">🧩 Tailwind v4 工具类 Playground</h1>
+    <p class="text-slate-500 text-sm mb-8">
+      这是一个 <strong>零构建</strong> 的单文件示例。调整浏览器宽度，观察三个面板的响应式表现。
+      断点提示条颜色也会随宽度变化。
+    </p>
+
+    <!-- ========== 面板 1：断点实时信息 ========== -->
+    <section class="mb-10">
+      <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-blue-500"></span>
+        1. 当前断点
+      </h2>
+      <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
+        <div class="flex items-center gap-4 flex-wrap">
+          <span class="text-sm text-slate-500">当前：</span>
+          <code class="text-sm font-mono px-2 py-1 rounded bg-slate-100 text-slate-700" id="current-bp">—</code>
+          <span class="text-slate-300">|</span>
+          <span class="text-xs text-slate-400">视口宽：<span id="viewport-w">0</span>px</span>
+        </div>
+        <div class="mt-4 grid grid-cols-6 gap-1 text-xs">
+          <code class="p-2 rounded border text-center sm:bg-transparent bg-blue-50 border-blue-200 text-blue-600">默认<br><640</code>
+          <code class="p-2 rounded border text-center text-slate-400" data-bp="sm">sm<br>≥640</code>
+          <code class="p-2 rounded border text-center text-slate-400" data-bp="md">md<br>≥768</code>
+          <code class="p-2 rounded border text-center text-slate-400" data-bp="lg">lg<br>≥1024</code>
+          <code class="p-2 rounded border text-center text-slate-400" data-bp="xl">xl<br>≥1280</code>
+          <code class="p-2 rounded border text-center text-slate-400" data-bp="2xl">2xl<br>≥1536</code>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== 面板 2：响应式卡片网格 ========== -->
+    <section class="mb-10">
+      <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+        2. 响应式网格：1→2→3→4 列
+      </h2>
+
+      <!-- 关键：移动端 1 列，sm 2 列，md 3 列，lg 4 列 -->
+      <div class="grid gap-4
+                  grid-cols-1
+                  sm:grid-cols-2
+                  md:grid-cols-3
+                  lg:grid-cols-4">
+
+        <!-- 卡片 A -->
+        <div class="bg-white rounded-lg shadow-sm border border-slate-200
+                    hover:shadow-md hover:-translate-y-0.5
+                    transition-all duration-200 p-4">
+          <div class="text-xs text-blue-500 font-medium mb-1">A</div>
+          <h3 class="font-semibold">间距 scale</h3>
+          <p class="text-xs text-slate-500 mt-1">0, 1, 2, 4, 8, 12, 16, 24, 32, 48, 64</p>
+        </div>
+
+        <!-- 卡片 B -->
+        <div class="bg-white rounded-lg shadow-sm border border-slate-200
+                    hover:shadow-md hover:-translate-y-0.5
+                    transition-all duration-200 p-4">
+          <div class="text-xs text-emerald-500 font-medium mb-1">B</div>
+          <h3 class="font-semibold">色彩 scale</h3>
+          <p class="text-xs text-slate-500 mt-1">slate-50 → slate-950（10 档）</p>
+        </div>
+
+        <!-- 卡片 C：带任意值 -->
+        <div class="bg-gradient-to-br from-amber-400 to-orange-500
+                    text-white rounded-lg shadow-sm
+                    hover:shadow-lg hover:scale-[1.02]
+                    transition-all duration-200 p-4">
+          <div class="text-xs text-white/70 font-medium mb-1">C</div>
+          <h3 class="font-semibold">任意值语法</h3>
+          <p class="text-xs text-white/90 mt-1">text-[17px], bg-[#da373d]</p>
+        </div>
+
+        <!-- 卡片 D：带暗黑模式 -->
+        <div class="bg-white dark:bg-slate-900
+                    rounded-lg shadow-sm border border-slate-200 dark:border-slate-700
+                    hover:shadow-md hover:-translate-y-0.5
+                    transition-all duration-200 p-4">
+          <div class="text-xs text-purple-500 font-medium mb-1">D</div>
+          <h3 class="font-semibold">dark: 前缀</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">随系统主题自动切换</p>
+        </div>
+
+        <!-- 卡片 E -->
+        <div class="bg-white rounded-lg shadow-sm border border-slate-200
+                    hover:shadow-md hover:-translate-y-0.5
+                    transition-all duration-200 p-4">
+          <div class="text-xs text-rose-500 font-medium mb-1">E</div>
+          <h3 class="font-semibold">flex 工具类</h3>
+          <p class="text-xs text-slate-500 mt-1">flex-1, flex-shrink-0, gap-4</p>
+        </div>
+
+        <!-- 卡片 F -->
+        <div class="bg-white rounded-lg shadow-sm border border-slate-200
+                    hover:shadow-md hover:-translate-y-0.5
+                    transition-all duration-200 p-4">
+          <div class="text-xs text-teal-500 font-medium mb-1">F</div>
+          <h3 class="font-semibold">grid 工具类</h3>
+          <p class="text-xs text-slate-500 mt-1">grid-cols-3, gap-4, min-h-0</p>
+        </div>
+
+        <!-- 卡片 G -->
+        <div class="bg-white rounded-lg shadow-sm border border-slate-200
+                    hover:shadow-md hover:-translate-y-0.5
+                    transition-all duration-200 p-4">
+          <div class="text-xs text-indigo-500 font-medium mb-1">G</div>
+          <h3 class="font-semibold">truncate</h3>
+          <div class="flex items-center gap-2 mt-2">
+            <span class="flex-1 min-w-0 truncate text-sm">非常长非常长非常长的标题内容演示截断</span>
+            <button class="text-xs text-slate-400">→</button>
+          </div>
+        </div>
+
+        <!-- 卡片 H -->
+        <div class="bg-white rounded-lg shadow-sm border border-slate-200
+                    hover:shadow-md hover:-translate-y-0.5
+                    transition-all duration-200 p-4">
+          <div class="text-xs text-pink-500 font-medium mb-1">H</div>
+          <h3 class="font-semibold">sr-only</h3>
+          <p class="text-xs text-slate-500 mt-1">屏幕阅读器专用文字（无障碍必备）</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== 面板 3：任意值 & 任意变体高级用法 ========== -->
+    <section class="mb-10">
+      <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+        3. 任意值 & 任意变体
+      </h2>
+
+      <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-5 space-y-5">
+
+        <!-- 任意值示例 -->
+        <div>
+          <code class="text-xs font-mono bg-slate-100 px-2 py-0.5 rounded">text-[17px]</code>
+          <div class="text-[17px] mt-2">这是 17px 字号（任意值，不是默认 token）</div>
+        </div>
+
+        <div>
+          <code class="text-xs font-mono bg-slate-100 px-2 py-0.5 rounded">bg-[#da373d] text-white</code>
+          <div class="bg-[#da373d] text-white px-3 py-2 rounded mt-2 inline-block">
+            腾讯红（用任意值指定颜色）
+          </div>
+        </div>
+
+        <div>
+          <code class="text-xs font-mono bg-slate-100 px-2 py-0.5 rounded">rounded-[16px]</code>
+          <div class="bg-slate-100 rounded-[16px] px-3 py-2 mt-2 inline-block">
+            自定义圆角（16px，不在默认 token 里）
+          </div>
+        </div>
+
+        <!-- 任意变体示例：[@media(min-width:900px)]: -->
+        <div>
+          <code class="text-xs font-mono bg-slate-100 px-2 py-0.5 rounded">[@media(min-width:900px)]:bg-purple-500</code>
+          <div class="bg-slate-200 [@media(min-width:900px)]:bg-purple-500
+                      [@media(min-width:900px)]:text-white
+                      px-3 py-2 rounded mt-2 inline-block
+                      transition-colors duration-300">
+            ≥900px 时变紫色（自定义断点，不是默认 sm/md）
+          </div>
+        </div>
+
+        <!-- 任意变体示例：[&:not(:disabled)]:hover: -->
+        <div>
+          <code class="text-xs font-mono bg-slate-100 px-2 py-0.5 rounded">[&:not(:disabled)]:hover:bg-blue-500</code>
+          <div class="flex gap-2 mt-2">
+            <button disabled class="bg-slate-300 text-slate-500 px-3 py-2 rounded
+                                    cursor-not-allowed">禁用的按钮</button>
+            <button class="bg-slate-400 text-white px-3 py-2 rounded
+                            [&:not(:disabled)]:hover:bg-blue-500
+                            transition-colors">
+              可用的按钮（hover 变蓝）
+            </button>
+          </div>
+        </div>
+
+        <!-- [&:has()] 示例 -->
+        <div>
+          <code class="text-xs font-mono bg-slate-100 px-2 py-0.5 rounded">[&:has(input:checked)]:ring-blue-500</code>
+          <label class="inline-flex items-center gap-2 mt-2 cursor-pointer
+                        [&:has(input:checked)]:ring-2 [&:has(input:checked)]:ring-blue-500
+                        [&:has(input:checked)]:bg-blue-50
+                        px-3 py-2 rounded">
+            <input type="checkbox" class="accent-blue-500" />
+            选我看效果
+          </label>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 页脚 -->
+    <footer class="text-center text-xs text-slate-400 pt-4 pb-8">
+      💡 Play CDN 正在解析 <code class="bg-slate-100 px-1 rounded">@tailwindcss/browser@4.1.1</code> ·
+      所有工具类均来自 <code class="bg-slate-100 px-1 rounded">@theme</code> 定义的 CSS 变量
+    </footer>
+
+  </div>
+
+<!-- ========== Tailwind v4 浏览器端引擎 ========== -->
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.1"></script>
+
+<!-- 断点检测脚本 -->
+<script>
+  const bpMap = [
+    { bp: '2xl', label: '≥ 2xl (1536px)' },
+    { bp: 'xl',  label: '≥ xl (1280px)' },
+    { bp: 'lg',  label: '≥ lg (1024px)' },
+    { bp: 'md',  label: '≥ md (768px)' },
+    { bp: 'sm',  label: '≥ sm (640px)' },
+  ];
+  const thresholds = { sm: 640, md: 768, lg: 1024, xl: 1280, '2xl': 1536 };
+
+  function checkBP() {
+    const w = window.innerWidth;
+    document.getElementById('viewport-w').textContent = w;
+
+    // 找当前命中的最高断点
+    let current = '< 默认 (<640px)';
+    for (const { bp, label } of bpMap) {
+      if (w >= thresholds[bp]) { current = label; break; }
+    }
+    document.getElementById('current-bp').textContent = current;
+
+    // 更新每个断点格的高亮
+    document.querySelectorAll('[data-bp]').forEach(el => {
+      const bp = el.dataset.bp;
+      el.classList.remove('bg-blue-50', 'border-blue-200', 'text-blue-600');
+      el.classList.add('text-slate-400');
+      if (w >= thresholds[bp]) {
+        el.classList.add('bg-blue-50', 'border-blue-200', 'text-blue-600');
+        el.classList.remove('text-slate-400');
+      }
+    });
+  }
+  checkBP();
+  window.addEventListener('resize', checkBP);
+</script>
+</body>
+</html>

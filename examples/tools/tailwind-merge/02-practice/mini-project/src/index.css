@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+/* Tailwind v4 设计令牌 */
+@theme inline {
+  --color-brand: #da373d;
+  --color-bg: light-dark(#ffffff, #0f172a);
+  --color-text: light-dark(#0f172a, #f8fafc);
+}
+
+@layer base {
+  html { font-family: "Inter", "Noto Sans SC", system-ui, sans-serif; }
+  body { background-color: var(--color-bg); color: var(--color-text); min-height: 100vh; }
+}

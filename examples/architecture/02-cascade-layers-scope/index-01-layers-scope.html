@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 02：cascade layers 与 @scope 的工程用法
+  ------------------------------------------------------------
+  【知识点】
+    1. @layer 的优先级由首次声明顺序决定
+    2. 未分层样式高于所有分层样式
+    3. 层内 !important 的优先级方向反转
+    4. @scope 限制样式边界，并按“就近原则”覆盖
+  【运行方式】
+    单文件、零网络、零外部资源；双击 file:// 即可运行。
+  【效果说明】
+    上半部分两组按钮使用不同的层顺序（utilities 高于
+    components / components 高于 utilities），观察同一条
+    冲突规则谁赢。下半部分用 @scope 限定文章内标题样式，
+    验证样式不泄漏到卡片外。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 02 · cascade layers 与 @scope</title>
+<style>
+  /* 两组独立层名，便于并排演示不同顺序 */
+  @layer a-reset, a-components, a-utilities;
+  @layer b-utilities, b-components, b-reset;
+
+  :root {
+    --ink:#1f2a37; --muted:#667085; --line:#dbe3ec; --bg:#f3f6fa; --card:#fff;
+    --brand:#2563eb; --good:#15803d; --bad:#b91c1c;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.6; padding:22px 16px 60px;
+  }
+  .wrap { max-width:1080px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:var(--muted); font-size:13.5px; margin-bottom:18px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  h2 { font-size:16px; margin-bottom:12px; }
+  .demogrid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:760px) { .demogrid { grid-template-columns:1fr; } }
+  .demo {
+    border:1px dashed #b9c6d6; border-radius:10px; padding:14px; background:#f8fafc;
+  }
+  .demo h3 { font-size:13px; margin-bottom:8px; color:#475569; }
+  .demo p { font-size:12px; color:var(--muted); margin-top:8px; }
+
+  /* A 组：utilities 在后，应覆盖 components */
+  @layer a-components {
+    .a-btn { background:#e2e8f0; color:#0f172a; padding:10px 18px; border:1px solid #cbd5e1; border-radius:8px; font:inherit; }
+  }
+  @layer a-utilities {
+    .a-btn { background:var(--brand); color:#fff; border-color:transparent; }
+  }
+
+  /* B 组：components 在后，应覆盖 utilities */
+  @layer b-utilities {
+    .b-btn { background:var(--brand); color:#fff; padding:10px 18px; border:1px solid transparent; border-radius:8px; font:inherit; }
+  }
+  @layer b-components {
+    .b-btn { background:#e2e8f0; color:#0f172a; border-color:#cbd5e1; }
+  }
+
+  /* 未分层样式：高于所有层 */
+  .unlayered-demo .u-btn { background:#f59e0b; color:#0f172a; padding:10px 18px; border:1px solid #d97706; border-radius:8px; font:inherit; }
+
+  .mark { font-size:11px; font-family:Menlo,monospace; padding:2px 6px; border-radius:4px; background:#eef2f7; color:#334155; }
+
+  /* @scope 演示 */
+  .prose {
+    border:1px solid var(--line); border-radius:10px; padding:16px; background:#fff;
+  }
+  .prose .outer-title { font-size:20px; margin-bottom:6px; }
+  @scope (.prose) to (.embed) {
+    h3 { color:#b91c1c; font-size:15px; }
+    p { color:#7c2d12; font-size:13px; }
+    a { color:#b91c1c; }
+  }
+  .embed {
+    margin-top:10px; padding:12px; border-radius:8px; background:#f1f5f9; border:1px dashed #94a3b8;
+  }
+  .embed h3 { color:#0f172a !important; font-size:15px; }
+  .embed p { color:#475569; font-size:13px; }
+  .leak-check { margin-top:12px; font-size:12.5px; }
+  .pill { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; background:#ecfdf3; color:#15803d; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>cascade layers 与 @scope 的工程用法</h1>
+  <p class="sub">顺序决定谁优先，边界决定作用到哪。</p>
+
+  <div class="panel">
+    <h2>① 层顺序决定优先级</h2>
+    <div class="demogrid">
+      <div class="demo">
+        <h3>A 组：<span class="mark">@layer a-reset, a-components, a-utilities</span></h3>
+        <button class="a-btn">按钮</button>
+        <p>utilities 层声明在后，覆盖 components 层：按钮显示为蓝色。</p>
+      </div>
+      <div class="demo">
+        <h3>B 组：<span class="mark">@layer b-utilities, b-components, b-reset</span></h3>
+        <button class="b-btn">按钮</button>
+        <p>components 层声明在后，覆盖 utilities 层：按钮显示为灰色。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel unlayered-demo">
+    <h2>② 未分层样式优先级最高</h2>
+    <div class="demo">
+      <h3><span class="mark">.u-btn（不在任何 @layer 内）</span></h3>
+      <button class="u-btn">按钮</button>
+      <p>即使同选择器写进最高层，未分层规则仍然胜出。迁移遗留样式时要先收编进层。</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>③ @scope 限定边界，不泄漏</h2>
+    <div class="prose">
+      <h3 class="outer-title">文章标题（作用域内）</h3>
+      <p>文章正文链接 <a href="#x">应使用文章链接色</a>，段落为棕色。</p>
+      <div class="embed">
+        <h3>嵌入组件标题（边界外）</h3>
+        <p>这里是第三方嵌入内容，不应被文章作用域影响。</p>
+      </div>
+    </div>
+    <p class="leak-check">
+      <span class="pill">验证</span>
+      《文章标题》与正文使用 <code>@scope (.prose) to (.embed)</code> 的样式；
+      嵌入组件标题保持深色，说明 <code>to</code> 边界阻断了作用域。
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>④ 结论对照</h2>
+    <p style="font-size:13px;color:#475569">
+      层解决“谁覆盖谁”，作用域解决“作用到哪”。两者都不改变选择器本身的特异性，
+      但把原本依赖源码顺序与长选择器的脆弱覆盖，变成可声明的秩序与边界。
+    </p>
+  </div>
+</div>
+</body>
+</html>

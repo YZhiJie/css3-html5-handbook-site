@@ -1,0 +1,143 @@
+// _mixins.scss —— 公共 mixin 和函数
+// 抽象层：只有逻辑，不直接产出 CSS（@include 才会产出）
+
+@use 'sass:math';
+@use 'sass:string';
+@use 'sass:map';
+@use 'sass:meta';
+@use 'sass:color';
+@use 'tokens' as *;   // 同目录
+
+// ──────────────────────────────────
+// 私有函数（函数私有前缀是 _，不是 $_）
+// ──────────────────────────────────
+@function _px-to-rem($px, $base: 16px) {
+  @return math.div($px, $base) * 1rem;
+}
+
+// ──────────────────────────────────
+// 公开函数：rem 转换
+// ──────────────────────────────────
+@function rem($px, $base: 16px) {
+  @return _px-to-rem($px, $base);
+}
+
+// ──────────────────────────────────
+// 公开函数：从 spacing-map 取间距值
+// ──────────────────────────────────
+@function sp($step) {
+  $v: map.get($spacing-map, $step);
+  @if $v == null {
+    @warn "sp(#{$step}): 令牌不存在，可选值：#{map.keys($spacing-map)}";
+    @return 0;
+  }
+  @return $v;
+}
+
+// ──────────────────────────────────
+// 公开 mixin：flex 居中三件套
+// ──────────────────────────────────
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+// ──────────────────────────────────
+// 公开 mixin：垂直居中（flex column）
+// ──────────────────────────────────
+@mixin flex-vcenter {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+// ──────────────────────────────────
+// 公开 mixin：响应式断点
+// 支持字符串（'md'）或直接像素值（800px）
+// ──────────────────────────────────
+@mixin respond-to($bp) {
+  @if map.has-key($breakpoints, $bp) {
+    @media (min-width: #{map.get($breakpoints, $bp)}) { @content; }
+  } @else if meta.type-of($bp) == 'number' {
+    @media (min-width: #{$bp}) { @content; }
+  } @else {
+    @error "respond-to: 未知断点 '#{$bp}'（string 或 number）";
+  }
+}
+
+// ──────────────────────────────────
+// 公开 mixin：焦点清除（无障碍友好）
+// ──────────────────────────────────
+@mixin reset-focus {
+  &:focus {
+    outline: none;
+  }
+  &:focus-visible {
+    outline: 2px solid $color-brand;
+    outline-offset: 2px;
+  }
+}
+
+// ──────────────────────────────────
+// 公开 mixin：ellipsis 截断（1 行 / N 行）
+// ──────────────────────────────────
+@mixin text-truncate($lines: 1) {
+  @if $lines == 1 {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  } @else {
+    display: -webkit-box;
+    -webkit-line-clamp: $lines;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+// ──────────────────────────────────
+// 公开 mixin：平滑过渡
+// ──────────────────────────────────
+@mixin transition($props...) {
+  transition: $props 0.2s ease;
+}
+
+// ──────────────────────────────────
+// 公开 mixin：主题化（在 :root 或 .dark-mode 里注入 CSS 变量）
+// 双层 token 架构：Sass 变量 → CSS 变量（运行时可变）
+// ──────────────────────────────────
+@mixin define-theme-vars($mode: light) {
+  @if $mode == light {
+    --color-primary: #{$color-brand};
+    --color-primary-dark: #{$color-brand-dark};
+    --color-success: #{$color-success};
+    --color-danger: #{$color-danger};
+    --color-warning: #{$color-warning};
+    --color-text: #{$color-text};
+    --color-muted: #{$color-muted};
+    --color-border: #{$color-border};
+    --color-bg: #{$color-bg};
+    --color-bg-subtle: #{$color-bg-subtle};
+  } @else {
+    // dark 版本：用 Sass 颜色函数自动计算
+    --color-primary: #{color.adjust($color-brand, $lightness: 15%)};
+    --color-primary-dark: #{color.adjust($color-brand, $lightness: 5%)};
+    --color-success: #{color.adjust($color-success, $lightness: 10%)};
+    --color-danger: #{color.adjust($color-danger, $lightness: 10%)};
+    --color-warning: #{color.adjust($color-warning, $lightness: 15%)};
+    --color-text: #f1f5f9;
+    --color-muted: #94a3b8;
+    --color-border: #334155;
+    --color-bg: #0f172a;
+    --color-bg-subtle: #1e293b;
+  }
+
+  // 间距、圆角、阴影这些在 light/dark 通用
+  --space-1: #{$space-1};
+  --space-2: #{$space-2};
+  --space-3: #{$space-3};
+  --space-4: #{$space-4};
+  --radius-sm: #{$radius-sm};
+  --radius-md: #{$radius-md};
+  --radius-lg: #{$radius-lg};
+}

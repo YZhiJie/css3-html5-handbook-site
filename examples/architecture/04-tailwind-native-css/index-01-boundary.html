@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 04：Tailwind 与原生 CSS 的边界
+  ------------------------------------------------------------
+  【知识点】
+    1. @theme 输出令牌，同时供工具类与组件 CSS 消费
+    2. components 层放组件契约，utilities 层放局部微调
+    3. utilities 在 components 之后，工具类覆盖组件是预期行为
+    4. 任意值绕过设计约束，应回填到令牌
+  【运行方式】
+    单文件、零网络、零外部资源；双击 file:// 即可运行。
+  【效果说明】
+    示例用少量手写类模拟 Tailwind 的 theme/components/
+    utilities 分层。切换按钮演示“工具类覆盖组件契约”，
+    并对比令牌间距与任意像素值的一致性差异。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 04 · Tailwind 与原生 CSS 的边界</title>
+<style>
+  /* 层顺序：theme → base → components → utilities */
+  @layer theme, base, components, utilities;
+
+  @layer theme {
+    :root {
+      --color-action:#2563eb;
+      --color-action-fg:#ffffff;
+      --color-surface:#ffffff;
+      --color-text:#0f172a;
+      --color-muted:#64748b;
+      --color-border:#cbd5e1;
+      --radius-control:10px;
+      --space-1:4px;
+      --space-2:8px;
+      --space-3:12px;
+      --space-4:16px;
+      --space-5:20px;
+    }
+  }
+
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:#f3f6fa; color:#1f2a37; line-height:1.6; padding:22px 16px 60px;
+  }
+  .wrap { max-width:1040px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:#667085; font-size:13.5px; margin-bottom:18px; }
+  .panel { background:#fff; border:1px solid #dbe3ec; border-radius:12px; padding:16px; margin-bottom:16px; }
+  h2 { font-size:16px; margin-bottom:10px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+  .row button {
+    font:inherit; font-size:13px; padding:7px 12px; border-radius:8px; cursor:pointer;
+    border:1px solid #dbe3ec; background:#fff; color:#1f2a37;
+  }
+  .row button.on { background:var(--color-action); color:var(--color-action-fg); border-color:transparent; }
+  .stage { display:grid; gap:12px; padding:14px; border-radius:10px; background:#f8fafc; border:1px dashed #b9c6d6; }
+
+  /* 组件层：契约、状态、无障碍 */
+  @layer components {
+    .btn {
+      display:inline-flex; align-items:center; gap:8px;
+      padding-inline:var(--space-4);
+      padding-block:var(--space-2);
+      border:1px solid transparent;
+      border-radius:var(--radius-control);
+      background:#e2e8f0; color:#0f172a;
+      font:inherit; cursor:pointer;
+      transition:background .18s, color .18s, border-color .18s;
+    }
+    .btn--primary { background:var(--color-action); color:var(--color-action-fg); }
+    .btn:focus-visible { outline:2px solid var(--color-action); outline-offset:2px; }
+    .btn:disabled { opacity:.5; cursor:not-allowed; }
+
+    .field {
+      display:grid; gap:6px;
+      padding:var(--space-3);
+      border:1px solid var(--color-border);
+      border-radius:var(--radius-control);
+      background:var(--color-surface);
+    }
+    .field input {
+      font:inherit; padding:var(--space-2) var(--space-3);
+      border:1px solid var(--color-border); border-radius:8px;
+    }
+  }
+
+  /* 工具层：局部微调，声明在 components 之后 */
+  @layer utilities {
+    .px-5 { padding-inline:var(--space-5); }
+    .py-3 { padding-block:var(--space-3); }
+    .mt-4 { margin-top:var(--space-4); }
+    .text-muted { color:var(--color-muted); }
+    .rounded-full { border-radius:999px; }
+  }
+
+  .code {
+    background:#0f172a; color:#cbd5e1; padding:12px; border-radius:8px;
+    font-size:12px; line-height:1.7; overflow:auto;
+  }
+  .code .c { color:#64748b; } .code .k { color:#22d3ee; } .code .s { color:#fbbf24; }
+  .note { font-size:12.5px; color:#64748b; margin-top:10px; }
+  .tag { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; background:#e8efff; color:#2563eb; margin-inline-end:6px; }
+  .compare { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:720px) { .compare { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Tailwind 与原生 CSS 的边界</h1>
+  <p class="sub">令牌做桥，组件层立契约，工具层做微调。</p>
+
+  <div class="panel">
+    <h2>① 分层与令牌桥接</h2>
+    <div class="code"><pre style="margin:0"><span class="c">/* 顺序决定覆盖关系 */</span>
+<span class="k">@layer</span> theme, base, components, utilities;
+
+<span class="k">@layer</span> theme {
+  :root { <span class="s">--color-action</span>: #2563eb; <span class="s">--space-4</span>: 16px; }
+}
+
+<span class="k">@layer</span> components {
+  .btn { background: <span class="s">var(--color-action)</span>; padding-inline: <span class="s">var(--space-4)</span>; }
+}
+
+<span class="k">@layer</span> utilities {
+  .px-5 { padding-inline: <span class="s">var(--space-5)</span>; }
+}</pre></div>
+    <p class="note">`@theme` 输出变量，工具类与组件 CSS 消费同一份令牌，避免两套色值。</p>
+  </div>
+
+  <div class="panel">
+    <h2>② 工具类覆盖组件契约</h2>
+    <div class="row">
+      <button id="toggleUtil">切换 px-5（工具类覆盖）</button>
+      <button id="toggleStatus" class="on">禁用状态</button>
+    </div>
+    <div class="stage">
+      <button class="btn btn--primary" id="demoBtn">保存更改</button>
+      <div class="field" style="max-width:420px">
+        <label style="font-size:12.5px;color:#64748b">邮箱</label>
+        <input value="pixel@example.com">
+      </div>
+    </div>
+    <p class="note">
+      <code>.btn</code> 在 components 层给出默认 16px 内边距；<code>.px-5</code> 在 utilities 层给出 20px。
+      工具类在声明顺序上更高，因此覆盖是预期行为——这正是 Tailwind 的微调机制。
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>③ 令牌间距 vs 任意像素值</h2>
+    <div class="compare">
+      <div>
+        <p class="note"><span class="tag">推荐</span>使用令牌：<code>px-5 → --space-5</code></p>
+        <div class="stage"><button class="btn btn--primary px-5">保存更改</button></div>
+        <p class="note">所有按钮共享同一档间距，改令牌即可全局调整。</p>
+      </div>
+      <div>
+        <p class="note"><span class="tag" style="background:#fff1f0;color:#b91c1c">慎用</span>任意值：<code>p-[13px]</code></p>
+        <div class="stage"><button class="btn btn--primary" style="padding-inline:13px">保存更改</button></div>
+        <p class="note">13px 绕过令牌，无法被主题/密度系统统一调整，评审时应回填到令牌。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>④ 边界清单</h2>
+    <p class="note">
+      <b>工具类</b>：间距、对齐、一次性排版、局部颜色。<br>
+      <b>组件 CSS</b>：结构、状态（hover/focus/disabled/loading）、容器查询、<code>:has()</code>、伪元素装饰。<br>
+      <b>令牌</b>：颜色、间距、圆角、字体、阴影的唯一来源。
+    </p>
+  </div>
+</div>
+
+<script>
+"use strict";
+const demoBtn = document.getElementById("demoBtn");
+document.getElementById("toggleUtil").addEventListener("click", (e) => {
+  const on = demoBtn.classList.toggle("px-5");
+  e.target.classList.toggle("on", on);
+  e.target.textContent = on ? "取消 px-5 覆盖" : "切换 px-5（工具类覆盖）";
+});
+document.getElementById("toggleStatus").addEventListener("click", (e) => {
+  demoBtn.disabled = !demoBtn.disabled;
+  e.target.classList.toggle("on", demoBtn.disabled);
+  e.target.textContent = demoBtn.disabled ? "启用状态" : "禁用状态";
+});
+</script>
+</body>
+</html>

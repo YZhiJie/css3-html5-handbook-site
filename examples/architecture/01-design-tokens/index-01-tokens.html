@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 01：设计令牌的分层与落地
+  ------------------------------------------------------------
+  【知识点】
+    1. 三层令牌：原始层 → 语义层 → 组件层
+    2. 主题只重绑语义层，组件层自动跟随
+    3. 组件直接引用原始值会导致换肤漏改
+    4. 运行时 var() 解析 vs 构建时多端输出
+  【运行方式】
+    单文件、零网络、零外部资源；双击 file:// 即可运行。
+  【效果说明】
+    修改原始色板，观察语义与组件逐层传导；切换暗色主题，
+    观察“正确卡片”跟随、“错误卡片”不跟随；读取计算值确认
+    最终解析结果。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 01 · 设计令牌的分层与落地</title>
+<style>
+  :root {
+    /* 1. 原始层 */
+    --blue-600:#2563eb;
+    --blue-500:#3b82f6;
+    --gray-900:#0f172a;
+    --gray-100:#f1f5f9;
+    --red-600:#dc2626;
+
+    /* 2. 语义层 */
+    --color-action:var(--blue-600);
+    --color-text:var(--gray-900);
+    --color-muted:#64748b;
+    --color-bg:var(--gray-100);
+    --color-danger:var(--red-600);
+
+    /* 3. 组件层 */
+    --button-bg:var(--color-action);
+    --button-fg:#ffffff;
+    --card-bg:#ffffff;
+    --card-fg:var(--color-text);
+  }
+  :root[data-theme="dark"] {
+    /* 主题只重绑语义层 */
+    --color-action:var(--blue-500);
+    --color-text:#e2e8f0;
+    --color-bg:#0b1220;
+    --color-danger:#f87171;
+    --card-bg:#131c2e;
+  }
+
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:var(--color-bg); color:var(--color-text); line-height:1.6;
+    padding:22px 16px 60px; transition:background .2s,color .2s;
+  }
+  .wrap { max-width:1060px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:var(--color-muted); font-size:13.5px; margin-bottom:18px; }
+  .panel { background:var(--card-bg); color:var(--card-fg); border:1px solid #cbd5e1; border-radius:12px; padding:16px; margin-bottom:16px; }
+  h2 { font-size:16px; margin-bottom:10px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+  label { font-size:13px; color:#64748b; display:flex; gap:6px; align-items:center; }
+  input[type="color"] { width:36px; height:28px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; padding:2px; }
+  input[type="range"] { width:180px; }
+  button {
+    font:inherit; font-size:13.5px; padding:8px 14px; border-radius:8px; cursor:pointer;
+    border:1px solid #cbd5e1; background:#fff; color:#0f172a;
+  }
+  button.primary {
+    background:var(--button-bg); color:var(--button-fg); border-color:transparent;
+    border-radius:10px; padding-inline:16px;
+  }
+  .cards { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:720px) { .cards { grid-template-columns:1fr; } }
+  .card { border:1px solid #cbd5e1; border-radius:10px; padding:14px; background:var(--card-bg); }
+  .card h3 { font-size:14px; margin-bottom:6px; }
+  .card p { font-size:12.5px; color:#64748b; }
+  .card.bad { background:#ffffff; color:#0f172a; border-color:#fca5a5; }
+  .card.bad h3 { color:#b91c1c; }
+  .badge { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; background:var(--color-action); color:#fff; margin-top:8px; }
+  .bad .badge { background:var(--blue-600); }
+  .swatches { display:flex; gap:8px; flex-wrap:wrap; }
+  .swatch { width:88px; border-radius:8px; overflow:hidden; border:1px solid #cbd5e1; font-size:10.5px; }
+  .swatch i { display:block; height:44px; }
+  .swatch span { display:block; padding:4px 6px; background:#fff; color:#334155; font-family:Menlo,monospace; }
+  pre { background:#0f172a; color:#cbd5e1; padding:12px; border-radius:8px; font-size:12px; overflow:auto; margin-top:10px; }
+  .note { font-size:12.5px; color:#64748b; margin-top:10px; }
+</style>
+<script>
+  // 首屏前读取主题，避免闪白
+  (function () {
+    var mode = localStorage.getItem("token-theme") || "light";
+    document.documentElement.dataset.theme = mode;
+  })();
+</script>
+</head>
+<body>
+<div class="wrap">
+  <h1>设计令牌的分层与落地</h1>
+  <p class="sub">原始层存值，语义层存角色，组件层存接口。换肤只动中间那层。</p>
+
+  <div class="panel">
+    <h2>① 原始层 → 语义层 → 组件层</h2>
+    <div class="row">
+      <label>原始 --blue-600 <input type="color" id="primBlue" value="#2563eb"></label>
+      <label>原始 --gray-900 <input type="color" id="primGray" value="#0f172a"></label>
+      <button id="themeBtn">切换暗色主题</button>
+      <button id="resetBtn">重置</button>
+    </div>
+    <div class="swatches" id="swatches"></div>
+    <pre id="computed">读取计算值…</pre>
+    <p class="note">
+      改原始色板，语义令牌 <code>--color-action</code> 与组件令牌 <code>--button-bg</code> 会逐层传导。
+      暗色主题只重绑语义层，组件层不需要改一行。
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>② 正确引用 vs 错误引用</h2>
+    <div class="cards">
+      <div class="card">
+        <h3>✅ 组件消费语义令牌</h3>
+        <p>按钮背景来自 <code>--button-bg → --color-action</code>，换肤自动跟随。</p>
+        <button class="primary">主要按钮</button>
+        <span class="badge">随主题</span>
+      </div>
+      <div class="card bad">
+        <h3>❌ 组件直接引用原始值</h3>
+        <p>背景写死 <code>--blue-600</code>，暗色主题下仍然刺眼，换肤漏改。</p>
+        <button class="primary" style="background:var(--blue-600);color:#fff">主要按钮</button>
+        <span class="badge">不随主题</span>
+      </div>
+    </div>
+    <p class="note">这是“分层”的核心收益：把变化点收敛到语义层，而不是在每个组件里找硬编码。</p>
+  </div>
+</div>
+
+<script>
+"use strict";
+const root = document.documentElement;
+const primBlue = document.getElementById("primBlue");
+const primGray = document.getElementById("primGray");
+const computed = document.getElementById("computed");
+const themeBtn = document.getElementById("themeBtn");
+
+function renderSwatches() {
+  const data = [
+    ["--blue-600", root.style.getPropertyValue("--blue-600") || "#2563eb", "原始"],
+    ["--color-action", "var(--blue-600)", "语义"],
+    ["--button-bg", "var(--color-action)", "组件"],
+    ["--color-text", "var(--gray-900)", "语义"],
+  ];
+  document.getElementById("swatches").innerHTML = data.map(([name, val, layer]) =>
+    '<div class="swatch"><i style="background:' + val + '"></i><span>' + name + "<br>" + layer + "</span></div>"
+  ).join("");
+}
+
+function readComputed() {
+  const btn = document.querySelector(".panel .primary");
+  const cs = getComputedStyle(btn);
+  const bodyStyle = getComputedStyle(document.body);
+  computed.textContent =
+    "char theme = " + (root.dataset.theme || "light") + "\n" +
+    "--color-action  = " + bodyStyle.getPropertyValue("--color-action").trim() + "\n" +
+    "--button-bg     = " + cs.getPropertyValue("--button-bg").trim() + "\n" +
+    "button background = " + cs.backgroundColor + "\n" +
+    "body background   = " + bodyStyle.backgroundColor;
+}
+
+primBlue.addEventListener("input", () => {
+  root.style.setProperty("--blue-600", primBlue.value);
+  renderSwatches(); readComputed();
+});
+primGray.addEventListener("input", () => {
+  root.style.setProperty("--gray-900", primGray.value);
+  renderSwatches(); readComputed();
+});
+themeBtn.addEventListener("click", () => {
+  const next = root.dataset.theme === "dark" ? "light" : "dark";
+  root.dataset.theme = next;
+  localStorage.setItem("token-theme", next);
+  themeBtn.textContent = next === "dark" ? "切换浅色主题" : "切换暗色主题";
+  readComputed(); renderSwatches();
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+  root.style.removeProperty("--blue-600");
+  root.style.removeProperty("--gray-900");
+  primBlue.value = "#2563eb"; primGray.value = "#0f172a";
+  renderSwatches(); readComputed();
+});
+
+renderSwatches();
+if (root.dataset.theme === "dark") themeBtn.textContent = "切换浅色主题";
+readComputed();
+</script>
+</body>
+</html>

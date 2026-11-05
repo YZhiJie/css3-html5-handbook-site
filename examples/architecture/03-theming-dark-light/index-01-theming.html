@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 03：主题与明暗体系的构建
+  ------------------------------------------------------------
+  【知识点】
+    1. color-scheme 让系统 UI（滚动条/表单）跟随主题
+    2. 语义令牌在 [data-theme] 下重绑，组件不判断明暗
+    3. light / dark / system 三种模式与系统偏好监听
+    4. 首屏内联脚本消除闪白；实时计算对比度
+  【运行方式】
+    单文件、零网络、零外部资源；双击 file:// 即可运行。
+  【效果说明】
+    点击三种模式切换主题；卡片展示语义令牌映射；
+    右下角实时显示正文与背景的对比度，深色/浅色都应
+    达到 4.5:1 以上。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 03 · 主题与明暗体系</title>
+<style>
+  :root {
+    color-scheme:light;
+    --color-bg:#f3f6fa;
+    --color-surface:#ffffff;
+    --color-text:#0f172a;
+    --color-muted:#64748b;
+    --color-border:#cbd5e1;
+    --color-action:#2563eb;
+    --color-action-fg:#ffffff;
+    --shadow:0 10px 28px rgb(15 23 42 / .08);
+  }
+  :root[data-theme="dark"] {
+    color-scheme:dark;
+    --color-bg:#0b1220;
+    --color-surface:#131c2e;
+    --color-text:#e2e8f0;
+    --color-muted:#94a3b8;
+    --color-border:#334155;
+    --color-action:#60a5fa;
+    --color-action-fg:#0b1220;
+    --shadow:0 10px 28px rgb(0 0 0 / .35);
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:var(--color-bg); color:var(--color-text); line-height:1.6;
+    padding:22px 16px 60px; transition:background .22s,color .22s;
+  }
+  .wrap { max-width:1040px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:var(--color-muted); font-size:13.5px; margin-bottom:18px; }
+  .panel {
+    background:var(--color-surface); border:1px solid var(--color-border);
+    border-radius:12px; padding:16px; margin-bottom:16px; box-shadow:var(--shadow);
+    transition:background .22s,border-color .22s;
+  }
+  h2 { font-size:16px; margin-bottom:10px; }
+  .seg { display:inline-flex; border:1px solid var(--color-border); border-radius:9px; overflow:hidden; margin-bottom:14px; }
+  .seg button {
+    font:inherit; font-size:13px; padding:8px 14px; border:0; cursor:pointer;
+    background:transparent; color:var(--color-text);
+  }
+  .seg button.on { background:var(--color-action); color:var(--color-action-fg); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+  .token {
+    border:1px solid var(--color-border); border-radius:9px; padding:8px 10px;
+    font-family:Menlo,monospace; font-size:11.5px;
+  }
+  .token i { display:block; height:36px; border-radius:6px; margin-bottom:6px; border:1px solid var(--color-border); }
+  .preview { display:grid; gap:12px; margin-top:12px; }
+  .bar {
+    display:flex; gap:10px; align-items:center; justify-content:space-between;
+    padding:12px 14px; border-radius:10px; background:var(--color-bg);
+    border:1px solid var(--color-border);
+  }
+  .bar b { font-size:13.5px; }
+  .bar span { color:var(--color-muted); font-size:12px; }
+  .btn {
+    font:inherit; font-size:13px; padding:9px 14px; border-radius:9px; border:0;
+    background:var(--color-action); color:var(--color-action-fg); cursor:pointer;
+  }
+  .metrics {
+    display:flex; gap:18px; flex-wrap:wrap; align-items:center;
+    margin-top:14px; padding-top:14px; border-top:1px dashed var(--color-border);
+    font-size:12.5px; color:var(--color-muted);
+  }
+  .ratio { font-family:Menlo,monospace; font-weight:700; font-size:15px; color:var(--color-text); }
+  .ok { color:#16a34a; } .bad { color:#dc2626; }
+  .note { font-size:12.5px; color:var(--color-muted); margin-top:10px; }
+</style>
+<script>
+  // 首屏前解析并写入主题，避免浅色先渲染再切深色
+  (function () {
+    var mode = localStorage.getItem("theme-mode") || "system";
+    var dark = mode === "dark" ||
+      (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    document.documentElement.dataset.themeMode = mode;
+  })();
+</script>
+</head>
+<body>
+<div class="wrap">
+  <h1>主题与明暗体系的构建</h1>
+  <p class="sub">系统给默认，用户给选择，组件只消费语义令牌。</p>
+
+  <div class="panel">
+    <h2>① 三种模式</h2>
+    <div class="seg" role="group" aria-label="主题模式">
+      <button data-mode="light">浅色</button>
+      <button data-mode="dark">深色</button>
+      <button data-mode="system">跟随系统</button>
+    </div>
+    <div class="grid" id="tokens"></div>
+    <p class="note">
+      切换只改 <code>data-theme</code> 并重绑语义令牌；组件没有一行 <code>prefers-color-scheme</code> 分支。
+      保存的是用户选择的模式（light / dark / system），所以“跟随系统”能在系统切换时继续生效。
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>② 组件消费语义令牌</h2>
+    <div class="preview">
+      <div class="bar">
+        <div><b>表面区域</b><br><span>--color-surface / --color-border</span></div>
+        <button class="btn">主要按钮</button>
+      </div>
+      <div class="bar">
+        <div><b>正文文本</b><br><span>--color-text / --color-muted</span></div>
+        <span>这段说明文字使用 muted 令牌。</span>
+      </div>
+    </div>
+    <div class="metrics">
+      <span>正文对比度：<span class="ratio" id="ratioText">–</span></span>
+      <span>按钮文字对比度：<span class="ratio" id="ratioBtn">–</span></span>
+      <span id="verdict"></span>
+    </div>
+    <p class="note">
+      对比度按 WCAG 相对亮度公式实时计算。暗色主题不是简单反相：文字、表面、边框需要分别调，才能同时满足可读性与层次。
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>③ 首屏防闪与系统联动</h2>
+    <p class="note">
+      本页主题脚本在 <code>&lt;head&gt;</code> 内联执行，先写 <code>data-theme</code> 再加载样式；
+      系统偏好变化时，仅当模式为 system 才更新主题，用户手动选择不会被覆盖。
+    </p>
+    <p class="note" id="state"></p>
+  </div>
+</div>
+
+<script>
+"use strict";
+const root = document.documentElement;
+const modeBtns = [...document.querySelectorAll("[data-mode]")];
+const ratioText = document.getElementById("ratioText");
+const ratioBtn = document.getElementById("ratioBtn");
+const verdict = document.getElementById("verdict");
+const state = document.getElementById("state");
+
+function parseColor(str) {
+  const m = str.match(/rgb?\(([^)]+)\)/);
+  if (!m) return [0, 0, 0];
+  return m[1].split(",").slice(0, 3).map((v) => parseFloat(v));
+}
+function luminance([r, g, b]) {
+  const c = [r, g, b].map((v) => {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+function ratio(a, b) {
+  const l1 = luminance(a), l2 = luminance(b);
+  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+}
+
+function update() {
+  const body = getComputedStyle(document.body);
+  const btn = document.querySelector(".btn");
+  const btnStyle = getComputedStyle(btn);
+  const textCS = getComputedStyle(document.querySelector(".bar b"));
+  const bg = parseColor(body.backgroundColor);
+  const fg = parseColor(textCS.color);
+  const btnBg = parseColor(btnStyle.backgroundColor);
+  const btnFg = parseColor(btnStyle.color);
+  const r1 = ratio(bg, fg);
+  const r2 = ratio(btnBg, btnFg);
+  ratioText.textContent = r1.toFixed(2) + " : 1";
+  ratioBtn.textContent = r2.toFixed(2) + " : 1";
+  ratioText.className = "ratio " + (r1 >= 4.5 ? "ok" : "bad");
+  ratioBtn.className = "ratio " + (r2 >= 4.5 ? "ok" : "bad");
+  verdict.textContent = r1 >= 4.5 && r2 >= 4.5 ? "✓ 达到 AA 正文要求" : "⚠ 低于 4.5:1，需要调整";
+  verdict.style.color = r1 >= 4.5 && r2 >= 4.5 ? "#16a34a" : "#dc2626";
+
+  const tokens = [
+    ["--color-bg", body.backgroundColor],
+    ["--color-surface", getComputedStyle(document.querySelector(".panel")).backgroundColor],
+    ["--color-text", textCS.color],
+    ["--color-action", btnStyle.backgroundColor],
+  ];
+  document.getElementById("tokens").innerHTML = tokens.map(([name, val]) =>
+    '<div class="token"><i style="background:' + val + '"></i>' + name + "<br>" + val + "</div>"
+  ).join("");
+
+  state.textContent =
+    "当前 data-theme=" + root.dataset.theme +
+    "，themeMode=" + root.dataset.themeMode +
+    "，color-scheme=" + getComputedStyle(root).colorScheme;
+}
+
+function applyMode(mode) {
+  root.dataset.themeMode = mode;
+  localStorage.setItem("theme-mode", mode);
+  const dark = mode === "dark" ||
+    (mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+  root.dataset.theme = dark ? "dark" : "light";
+  modeBtns.forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
+  update();
+}
+
+modeBtns.forEach((b) => b.addEventListener("click", () => applyMode(b.dataset.mode)));
+
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (root.dataset.themeMode === "system") applyMode("system");
+});
+
+applyMode(root.dataset.themeMode || "system");
+</script>
+</body>
+</html>

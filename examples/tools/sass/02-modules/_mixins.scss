@@ -1,0 +1,92 @@
+// _mixins.scss —— 公共 mixin 和函数
+// 只对外暴露 4 个 mixin + 2 个函数，内部 helper 以 _ 前缀隔离
+// （函数/mixin 私有前缀：_xxx；变量私有前缀：$_xxx）
+
+@use 'sass:math';
+@use 'sass:map';
+@use 'tokens';   // 同目录查找 @use _tokens.scss
+
+// ──────────────────────────────────
+// 私有内部函数（函数私有前缀是 _，变量私有前缀是 $_）
+// ──────────────────────────────────
+@function _px-to-rem($px, $base: 16px) {
+  @return math.div($px, $base) * 1rem;
+}
+
+@function _bp-media($min-width) {
+  @return "(min-width: #{$min-width})";
+}
+
+// ──────────────────────────────────
+// 公开 Mixin 1：flex 居中三件套
+// ──────────────────────────────────
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+// ──────────────────────────────────
+// 公开 Mixin 2：断点 media query
+// 参数 $name 可以是 'sm'/'md'/'lg'/'xl'，也可以是任意像素值
+// ──────────────────────────────────
+@mixin respond-to($name) {
+  $breakpoints: (
+    'sm': tokens.$bp-sm,
+    'md': tokens.$bp-md,
+    'lg': tokens.$bp-lg,
+    'xl': tokens.$bp-xl,
+  );
+
+  @if map.has-key($breakpoints, $name) {
+    @media #{_bp-media(map.get($breakpoints, $name))} { @content; }
+  } @else if type-of($name) == 'number' {
+    @media #{_bp-media($name)} { @content; }
+  } @else {
+    @error "respond-to: 未知断点 #{$name}";
+  }
+}
+
+// ──────────────────────────────────
+// 公开 Mixin 3：焦点清除（accessibility 友好）
+// ──────────────────────────────────
+@mixin reset-focus {
+  &:focus {
+    outline: none;
+  }
+  &:focus-visible {
+    outline: 2px solid tokens.$color-primary;
+    outline-offset: 2px;
+  }
+}
+
+// ──────────────────────────────────
+// 公开 Mixin 4：clamp 响应式字号（最简版）
+// Sass 只做插值，vw/rem 的混合计算交给浏览器的 clamp()
+// 公式：font-size = min + (max-min) * ((100vw - minBP) / (maxBP - minBP))
+// ──────────────────────────────────
+@mixin fluid-typography($min-px, $max-px, $min-bp: 480px, $max-bp: 1280px) {
+  $min-rem: _px-to-rem($min-px);
+  $max-rem: _px-to-rem($max-px);
+  $rel: math.div($max-px - $min-px, $max-bp - $min-bp);  // 纯数值比例
+
+  font-size: clamp(
+    #{$min-rem},
+    calc(#{math.div($rel, 1px)} * 100vw + #{_px-to-rem($min-px) - $rel * $min-bp / 1px}#{'rem'}),
+    #{$max-rem}
+  );
+}
+
+// ──────────────────────────────────
+// 公开函数：rem 转换（外部可以直接用 remify(24px)）
+// ──────────────────────────────────
+@function remify($px, $base: 16px) {
+  @return _px-to-rem($px, $base);
+}
+
+// ──────────────────────────────────
+// 公开函数：透明度叠加颜色
+// ──────────────────────────────────
+@function with-alpha($color, $alpha) {
+  @return rgba($color, $alpha);
+}

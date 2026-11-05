@@ -1,0 +1,174 @@
+// main.scss —— 入口文件
+// CLI 编译：
+//   npx sass main.scss dist/final.css
+//   npx sass --watch main.scss dist/final.css
+//
+// 这是 SMACSS 7-1 模式的典型入口：
+//   1. 先加载 abstracts（tokens / mixins / functions）
+//   2. 再加载 base（reset / typography）
+//   3. 再加载 components（button / card / modal ...）
+//   4. 最后加载 utilities（工具类）
+
+// ⚠️ 顺序很重要：@use 在本文件里都是顺序加载，
+//   但 abstracts 之间互相引用（tokens 和 mixins）已经各自内部 @use 过
+@use 'tokens' as *;
+@use 'mixins' as *;
+@use 'sass:math';
+@use 'sass:map';
+
+// ─── base 层（reset + 排版） ───
+@use 'reset';
+
+// ──────────────────────────────────
+// components 层：用 @each 批量生成组件变体
+// ──────────────────────────────────
+
+// Button 组件
+.btn {
+  @include flex-center;
+  @include reset-focus;
+  @include transition(background, transform, box-shadow);
+
+  height: 40px;
+  padding: 0 sp(4);
+  border: none;
+  border-radius: var(--radius-sm, $radius-sm);
+  cursor: pointer;
+  font-weight: 500;
+  line-height: 1;
+  font-size: rem(14px);
+
+  &:hover  { filter: brightness(0.95); }
+  &:active { transform: translateY(1px); }
+
+  // 尺寸变体（@for 循环生成）
+  @for $i from 1 through 3 {
+    @if $i == 1 {
+      &--sm { height: 32px; padding: 0 sp(3); font-size: rem(12px); }
+    } @else if $i == 2 {
+      &--md { }  // 默认就是 md
+    } @else {
+      &--lg { height: 52px; padding: 0 sp(6); font-size: rem(16px); }
+    }
+  }
+
+  // 语义变体（@each 遍历 map）
+  $btn-variants: (
+    'primary': $color-brand,
+    'success': $color-success,
+    'danger':  $color-danger,
+    'warning': $color-warning,
+  );
+
+  @each $name, $color in $btn-variants {
+    &--#{$name} {
+      background: var(--color-#{$name}, #{$color});
+      color: #fff;
+    }
+  }
+
+  // Ghost / 幽灵样式
+  &--ghost {
+    background: transparent;
+    border: 1px solid currentColor;
+    color: $color-brand;
+
+    &:hover {
+      background: $color-bg-hover;
+    }
+  }
+
+  // Disabled
+  &--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+}
+
+// Card 组件
+.card {
+  background: var(--color-bg, $color-bg);
+  border: 1px solid var(--color-border, $color-border);
+  border-radius: var(--radius-md, $radius-md);
+  box-shadow: $shadow-xs;
+  padding: sp(5);
+  transition: box-shadow 0.2s, transform 0.2s;
+
+  &__title {
+    font-size: rem(18px);
+    font-weight: 600;
+    color: var(--color-text, $color-text);
+    margin-bottom: sp(2);
+  }
+
+  &__body {
+    color: var(--color-muted, $color-muted);
+    font-size: rem(14px);
+    line-height: 1.6;
+  }
+
+  &__footer {
+    margin-top: sp(4);
+    padding-top: sp(3);
+    border-top: 1px solid var(--color-border, $color-border);
+    display: flex;
+    gap: sp(2);
+  }
+
+  // 悬浮提升
+  &:hover {
+    box-shadow: $shadow-md;
+    transform: translateY(-2px);
+  }
+
+  // 响应式调整（用 respond-to mixin）
+  @include respond-to('md') {
+    padding: sp(6);
+  }
+}
+
+// ──────────────────────────────────
+// utilities 层：批量生成工具类
+// ──────────────────────────────────
+
+// 间距工具类（@each 遍历 spacing-map）
+@each $step, $px in $spacing-map {
+  .p-#{$step} { padding: $px; }
+  .pt-#{$step} { padding-top: $px; }
+  .pb-#{$step} { padding-bottom: $px; }
+  .px-#{$step} { padding-left: $px; padding-right: $px; }
+  .py-#{$step} { padding-top: $px; padding-bottom: $px; }
+
+  .m-#{$step} { margin: $px; }
+  .mt-#{$step} { margin-top: $px; }
+  .mb-#{$step} { margin-bottom: $px; }
+  .mx-#{$step} { margin-left: $px; margin-right: $px; }
+  .my-#{$step} { margin-top: $px; margin-bottom: $px; }
+}
+
+// 可见性工具类（@each 遍历断点）
+@each $name, $px in $breakpoints {
+  @media (min-width: #{$px}) {
+    .d-none-#{$name}  { display: none !important; }
+    .d-block-#{$name} { display: block !important; }
+    .d-flex-#{$name}  { display: flex !important; }
+  }
+}
+
+// 颜色工具类
+$utility-colors: (
+  'primary': $color-brand,
+  'success': $color-success,
+  'danger':  $color-danger,
+  'warning': $color-warning,
+  'text':    $color-text,
+  'muted':   $color-muted,
+  'bg':      $color-bg,
+);
+
+@each $name, $hex in $utility-colors {
+  .bg-#{$name}   { background: #{$hex}; }
+  .text-#{$name} { color: #{$hex}; }
+  .border-#{$name} { border-color: #{$hex}; }
+}

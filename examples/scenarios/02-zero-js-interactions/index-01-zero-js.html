@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 02：零 JS 交互组件
+  ------------------------------------------------------------
+  【知识点】
+    1. popover 让浮层进入顶层，逃出 overflow/transform 裁剪
+    2. CSS 锚点定位让浮层跟随触发按钮，无需 JS 计算坐标
+    3. @starting-style 提供首次渲染的过渡起点
+    4. :has() 让父级感知后代状态，驱动按钮/卡片外观
+  【运行方式】
+    单文件、零网络、零外部资源；双击 file:// 即可运行。
+  【效果说明】
+    点击“打开菜单”，菜单出现在按钮下方并淡入；
+    点击外部或按 Esc 关闭。可选择“受限容器”场景，
+    观察 popover 仍能逃出 overflow:hidden 的裁剪。
+  【注意事项】
+    锚点定位需 Chrome 125+；不支持时菜单仍可见，但位置可能
+    回退到视口中央（示例提供绝对定位兜底样式）。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 02 · 零 JS 交互组件</title>
+<style>
+  :root {
+    --ink:#1f2a37; --muted:#667085; --line:#dbe3ec; --bg:#f3f6fa; --card:#fff;
+    --brand:#2563eb; --accent:#7c3aed;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.6; padding:22px 16px 60px;
+  }
+  .wrap { max-width:1040px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:var(--muted); font-size:13.5px; margin-bottom:18px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  h2 { font-size:16px; margin-bottom:10px; }
+  .controls { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  button {
+    font:inherit; font-size:13.5px; padding:8px 14px; border-radius:8px; cursor:pointer;
+    border:1px solid var(--line); background:#fff; color:var(--ink);
+  }
+  button.primary { background:var(--brand); color:#fff; border-color:var(--brand); }
+
+  /* ---- 受限容器：模拟表格/卡片裁剪 ---- */
+  .clipper {
+    position:relative; overflow:hidden auto; height:180px; padding:14px;
+    border:1px dashed #b9c6d6; border-radius:10px; background:#f8fafc;
+  }
+  .clipper.narrow { height:96px; }
+  .menu-wrap { position:relative; display:inline-block; }
+  .trigger {
+    anchor-name:--menu-anchor;
+    display:inline-flex; align-items:center; gap:8px;
+    padding:9px 14px; border-radius:8px; border:1px solid var(--line);
+    background:#fff; cursor:pointer; font:inherit;
+  }
+  .trigger .chev { transition:rotate .18s ease; display:inline-block; }
+  .menu-wrap:has(.menu:popover-open) .chev { rotate:180deg; }
+  .menu-wrap:has(.menu:popover-open) .trigger { border-color:var(--brand); color:var(--brand); }
+
+  /* ---- popover 浮层 ---- */
+  .menu {
+    position:fixed;
+    inset:auto;
+    margin:0;
+    padding:6px;
+    border:1px solid #cfd9e6;
+    border-radius:10px;
+    background:#fff;
+    box-shadow:0 18px 40px rgb(15 23 42 / .18);
+    min-inline-size:200px;
+    opacity:1; translate:0 0;
+    transition:opacity .18s ease, translate .18s ease, display .18s allow-discrete;
+  }
+  .menu a {
+    display:block; padding:9px 12px; border-radius:7px; color:var(--ink);
+    text-decoration:none; font-size:13.5px;
+  }
+  .menu a:hover { background:#eef4ff; color:var(--brand); }
+  .menu:not(:popover-open) { opacity:0; translate:0 8px; }
+
+  @starting-style {
+    .menu[popover]:popover-open { opacity:0; translate:0 8px; }
+  }
+
+  /* ---- 锚点定位（支持时生效） ---- */
+  @supports (position-anchor: --x) {
+    .menu {
+      position-anchor:--menu-anchor;
+      position-area:block-end span-inline-start;
+      position-try-fallbacks:flip-block;
+      margin-block-start:6px;
+    }
+  }
+  /* 兜底：不支持锚点时保持在顶层并靠左上，仍可用 */
+  @supports not (position-anchor: --x) {
+    .menu { inset-block-start:120px; inset-inline-start:40px; }
+  }
+
+  /* ---- :has() 表单状态 ---- */
+  .field { max-width:420px; }
+  .field input {
+    width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font:inherit;
+  }
+  .field .hint { display:none; font-size:12.5px; color:#b91c1c; margin-top:6px; }
+  .field:has(:user-invalid) { border-radius:8px; }
+  .field:has(:user-invalid) input { border-color:#dc2626; background:#fff7f7; }
+  .field:has(:user-invalid) .hint { display:block; }
+  .field:has(input:focus) label { color:var(--accent); }
+  .field label { font-size:12.5px; color:var(--muted); display:block; margin-bottom:5px; transition:color .15s; }
+
+  .note { font-size:12.5px; color:var(--muted); margin-top:10px; }
+  .badge { display:inline-block; font-size:11.5px; padding:2px 8px; border-radius:999px; background:#e8efff; color:var(--brand); margin-inline-end:6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>零 JS 交互组件</h1>
+  <p class="sub">popover 管顶层，锚点管位置，starting-style 管入场，:has() 管状态。</p>
+
+  <div class="panel">
+    <h2>① 下拉菜单 · 四件套组合</h2>
+    <div class="controls">
+      <button id="toggleClip">切换容器高度（模拟表格行）</button>
+    </div>
+    <div class="clipper" id="clipper">
+      <div class="menu-wrap">
+        <button class="trigger" popovertarget="menu" aria-haspopup="true" aria-expanded="false">
+          更多操作 <span class="chev">▾</span>
+        </button>
+        <div id="menu" popover class="menu">
+          <a href="#edit">编辑</a>
+          <a href="#duplicate">复制</a>
+          <a href="#archive">归档</a>
+          <a href="#delete" style="color:#b91c1c">删除</a>
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      观察：即使把容器压到 96px 高、并设置 <code>overflow:hidden</code>，菜单仍完整显示在顶层。
+      这来自 <code>popover</code> 的顶层机制，而不是 z-index。
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>② :has() · 父级感知后代状态</h2>
+    <div class="field">
+      <label for="email">邮箱（输入非法内容后失焦）</label>
+      <input id="email" type="email" placeholder="you@example.com" required>
+      <p class="hint">请输入合法的邮箱地址。</p>
+    </div>
+    <p class="note">
+      输入框使用 <code>:user-invalid</code>，只有用户交互后才判红；父级 <code>.field:has(:user-invalid)</code>
+      同步改变边框与提示，无需 JS 切类名。
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>③ 能力边界</h2>
+    <p class="note">
+      <span class="badge">popover</span>不维护 <code>aria-expanded</code>，严格无障碍场景仍需少量 JS 同步；
+      <span class="badge">锚点定位</span>仍在跨引擎推进，示例在 Chrome 125+ 体验最佳；
+      <span class="badge">@starting-style</span>只影响首次渲染帧，关闭动画需要 <code>allow-discrete</code>。
+    </p>
+  </div>
+</div>
+
+<script>
+"use strict";
+// 仅做无障碍属性同步（演示“零 JS 交互”不等于零 JS 无障碍）
+const trigger = document.querySelector(".trigger");
+const menu = document.getElementById("menu");
+const sync = () => trigger.setAttribute("aria-expanded", menu.matches(":popover-open") ? "true" : "false");
+menu.addEventListener("toggle", sync);
+
+document.getElementById("toggleClip").addEventListener("click", (e) => {
+  const narrow = document.getElementById("clipper").classList.toggle("narrow");
+  e.target.classList.toggle("primary", narrow);
+  e.target.textContent = narrow ? "恢复容器高度" : "切换容器高度（模拟表格行）";
+});
+sync();
+</script>
+</body>
+</html>

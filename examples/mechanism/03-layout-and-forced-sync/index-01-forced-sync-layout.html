@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 03：布局计算与强制同步布局
+  ------------------------------------------------------------
+  【知识点】
+    1. 读几何属性（offsetWidth / getBoundingClientRect）会强制
+       浏览器立刻完成布局
+    2. “写→读→写→读”的循环 = layout thrashing
+    3. “全读→全写”只触发一次布局
+    4. 用 performance.now() 与 longtask 观察真实差异
+  【运行方式】
+    单文件、零网络、零外部资源；双击 file:// 即可运行。
+  【效果说明】
+    点击两个按钮分别运行 200 个元素的交错写法与批量写法，
+    对比耗时。可调整元素数量重复实验。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 03 · 强制同步布局</title>
+<style>
+  :root {
+    --ink:#1f2a37; --muted:#667085; --line:#dbe3ec; --bg:#f3f6fa; --card:#fff;
+    --brand:#2563eb; --good:#15803d; --poor:#b91c1c; --warn:#b45309;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.6; padding:22px 16px 60px;
+  }
+  .wrap { max-width:1040px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:var(--muted); font-size:13.5px; margin-bottom:18px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .controls { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  button {
+    font:inherit; font-size:13.5px; padding:8px 14px; border-radius:8px; cursor:pointer;
+    border:1px solid var(--line); background:#fff; color:var(--ink);
+  }
+  button:hover { border-color:#b9c6d6; }
+  button.bad { background:#fff1f0; border-color:#f5c2c0; color:var(--poor); }
+  button.good { background:#ecfdf3; border-color:#b7e4c7; color:var(--good); }
+  input[type="range"] { width:180px; }
+  .bench { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:14px; }
+  .stat { background:#f8fafc; border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .stat b { display:block; font-size:22px; font-variant-numeric:tabular-nums; }
+  .stat span { color:var(--muted); font-size:12px; }
+  .boxes { display:flex; flex-wrap:wrap; gap:6px; margin-top:14px; min-height:120px; }
+  .box {
+    width:24px; height:24px; border-radius:5px; background:#93c5fd;
+    transition:background .12s, transform .12s;
+  }
+  .box.touched { background:#2563eb; }
+  pre {
+    background:#0f172a; color:#cbd5e1; padding:12px; border-radius:8px; overflow:auto;
+    font-size:12.5px; line-height:1.7; margin-top:12px;
+  }
+  .tip { color:var(--muted); font-size:12.5px; margin-top:10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>布局计算与强制同步布局</h1>
+  <p class="sub">同一份「读尺寸 → 改尺寸」的工作，只因为顺序不同，耗时可能差几十倍。</p>
+
+  <div class="panel">
+    <div class="controls">
+      <button id="thrash" class="bad">交错执行（写→读循环）</button>
+      <button id="batch" class="good">批量执行（全读→全写）</button>
+      <button id="reset">重置</button>
+      <label style="font-size:13px;color:var(--muted)">
+        元素数 <input type="range" id="count" min="50" max="400" step="50" value="200">
+        <b id="countVal">200</b>
+      </label>
+    </div>
+    <div class="boxes" id="boxes" aria-label="测试元素"></div>
+    <div class="bench">
+      <div class="stat"><b id="last">–</b><span>本次耗时 (ms)</span></div>
+      <div class="stat"><b id="thrashMs">–</b><span>交错执行耗时 (ms)</span></div>
+      <div class="stat"><b id="batchMs">–</b><span>批量执行耗时 (ms)</span></div>
+    </div>
+    <pre id="log">等待运行…</pre>
+    <p class="tip">
+      说明：交错写法每次读 offsetWidth 都会强制布局；批量写法只在最后统一写入，布局一次。
+      数值因设备而异，但倍数关系稳定。
+    </p>
+  </div>
+</div>
+
+<script>
+"use strict";
+const boxes = document.getElementById("boxes");
+const countInput = document.getElementById("count");
+const countVal = document.getElementById("countVal");
+const log = document.getElementById("log");
+const lastEl = document.getElementById("last");
+const thrashEl = document.getElementById("thrashMs");
+const batchEl = document.getElementById("batchMs");
+let items = [];
+
+function build(n) {
+  boxes.innerHTML = "";
+  items = [];
+  for (let i = 0; i < n; i++) {
+    const d = document.createElement("div");
+    d.className = "box";
+    boxes.appendChild(d);
+    items.push(d);
+  }
+  countVal.textContent = String(n);
+  log.textContent = "已生成 " + n + " 个元素，等待运行…";
+}
+
+/** 交错：每个元素都写宽度，然后立刻读回来 */
+function runInterleaved() {
+  const t0 = performance.now();
+  for (const el of items) {
+    el.style.width = "20px";
+    void el.offsetWidth;              // 强制同步布局
+    el.style.width = "28px";
+    void el.offsetWidth;              // 再次强制布局
+    el.classList.add("touched");
+  }
+  const cost = performance.now() - t0;
+  return cost;
+}
+
+/** 批量：先读全部，再写全部，中间不读 */
+function runBatched() {
+  const t0 = performance.now();
+  const widths = items.map((el) => el.offsetWidth);   // 读阶段：只布局一次
+  items.forEach((el, i) => {                         // 写阶段：不再读
+    el.style.width = (widths[i] + 4) + "px";
+    el.classList.add("touched");
+  });
+  void boxes.offsetHeight;                           // 触发一次最终布局
+  const cost = performance.now() - t0;
+  return cost;
+}
+
+function run(kind) {
+  // 先让浏览器完成上一轮样式，避免把测量误差算进本次
+  void boxes.offsetHeight;
+  const cost = kind === "thrash" ? runInterleaved() : runBatched();
+  lastEl.textContent = cost.toFixed(1);
+  (kind === "thrash" ? thrashEl : batchEl).textContent = cost.toFixed(1);
+  log.textContent =
+    (kind === "thrash" ? "交错执行" : "批量执行") +
+    "：" + items.length + " 个元素，耗时 " + cost.toFixed(2) + " ms。\n" +
+    "打开 DevTools Performance 录制，交错写法会看到大量重复的 Layout 事件。";
+  lastEl.style.color = cost > 50 ? "var(--poor)" : cost > 20 ? "var(--warn)" : "var(--good)";
+  // 复位颜色，便于连续测试
+  setTimeout(() => items.forEach((el) => el.classList.remove("touched")), 400);
+}
+
+document.getElementById("thrash").addEventListener("click", () => run("thrash"));
+document.getElementById("batch").addEventListener("click", () => run("batch"));
+document.getElementById("reset").addEventListener("click", () => build(+countInput.value));
+countInput.addEventListener("input", () => build(+countInput.value));
+
+build(200);
+</script>
+</body>
+</html>

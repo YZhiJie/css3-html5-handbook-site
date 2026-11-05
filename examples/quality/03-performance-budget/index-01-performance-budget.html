@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 03：性能预算与 CI 门禁
+  ------------------------------------------------------------
+  【知识点】
+    1. 预算三层：资源 / 请求 / 指标
+    2. 资源超支要能归因到具体模块
+    3. 长任务 > 50ms 阻塞输入，可用 PerformanceObserver 实测
+    4. 门禁分级：小幅超支告警，显著超支阻断
+  【运行方式】
+    单文件、零网络、零外部资源；双击 file:// 即可运行。
+  【效果说明】
+    拖动体积与请求数滑块，页面按「关键路径估算模型」推算
+    首屏指标并对照预算；点击「实测长任务」用真实主线程阻塞
+    配合 PerformanceObserver 验证 50ms 阈值。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 03 · 性能预算与 CI 门禁</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:#0b1220; color:#e2e8f0; line-height:1.6;
+    padding:22px 16px 60px;
+  }
+  .wrap { max-width:1040px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:#94a3b8; font-size:13.5px; margin-bottom:18px; }
+  .panel { background:#111a30; border:1px solid #223055; border-radius:12px; padding:16px; margin-bottom:16px; }
+  h2 { font-size:15px; margin-bottom:12px; color:#e2e8f0; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; }
+  .field { font-size:13px; color:#94a3b8; }
+  .field b { color:#e2e8f0; float:right; font-variant-numeric:tabular-nums; }
+  input[type="range"] { width:100%; margin-top:6px; accent-color:#22d3ee; }
+  .budget { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+  .bcard { background:#0e1730; border:1px solid #223055; border-radius:9px; padding:10px 12px; }
+  .bcard b { display:block; font-size:17px; }
+  .bcard span { font-size:12px; color:#64748b; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px; }
+  button {
+    font:inherit; padding:9px 15px; border-radius:9px; cursor:pointer;
+    border:1px solid #334155; background:#1e293b; color:#e2e8f0;
+  }
+  button.primary { background:#22d3ee; border-color:#22d3ee; color:#0b1220; font-weight:700; }
+  .verdict { margin-top:14px; padding:14px 16px; border-radius:10px; font-weight:700; font-size:17px; }
+  .pass { background:#052e1a; color:#4ade80; border:1px solid #166534; }
+  .warn { background:#3b2a06; color:#fbbf24; border:1px solid #92400e; }
+  .fail { background:#3f0d12; color:#f87171; border:1px solid #991b1b; }
+  .log { font-family:"SFMono-Regular",Menlo,monospace; font-size:12.5px; background:#0e1730;
+    border:1px solid #223055; border-radius:9px; padding:12px; min-height:52px; white-space:pre-wrap; color:#94a3b8; }
+  .hint { font-size:12.5px; color:#64748b; margin-top:8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>性能预算：把「最差体验」变成 CI 断言</h1>
+  <p class="sub">资源与请求是可归因输入，指标是最终输出。超支时必须知道是谁超的，门禁才能给出行动。</p>
+
+  <div class="panel">
+    <h2>1. 预算（固定）</h2>
+    <div class="budget">
+      <div class="bcard"><b>170 KB</b><span>首屏 JS</span></div>
+      <div class="bcard"><b>50 KB</b><span>首屏 CSS</span></div>
+      <div class="bcard"><b>300 KB</b><span>首屏图片</span></div>
+      <div class="bcard"><b>12 个</b><span>关键请求</span></div>
+      <div class="bcard"><b>2.5 s</b><span>LCP</span></div>
+      <div class="bcard"><b>0.10</b><span>CLS</span></div>
+      <div class="bcard"><b>200 ms</b><span>INP</span></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>2. 本次改动的资源</h2>
+    <div class="grid">
+      <label class="field">首屏 JS <b><span id="jsOut">150</span> KB</b>
+        <input id="js" type="range" min="40" max="400" step="5" value="150">
+      </label>
+      <label class="field">首屏 CSS <b><span id="cssOut">38</span> KB</b>
+        <input id="css" type="range" min="10" max="160" step="2" value="38">
+      </label>
+      <label class="field">首屏图片 <b><span id="imgOut">240</span> KB</b>
+        <input id="img" type="range" min="0" max="900" step="10" value="240">
+      </label>
+      <label class="field">关键请求数 <b><span id="reqOut">9</span> 个</b>
+        <input id="req" type="range" min="3" max="30" step="1" value="9">
+      </label>
+      <label class="field">第三方脚本 <b><span id="thirdOut">1</span> 个</b>
+        <input id="third" type="range" min="0" max="8" step="1" value="1">
+      </label>
+      <label class="field">布局偏移源 <b><span id="clsOut">0.04</span></b>
+        <input id="cls" type="range" min="0" max="0.4" step="0.01" value="0.04">
+      </label>
+    </div>
+    <div class="row">
+      <button class="primary" id="measure" type="button">实测一次长任务（约 120ms）</button>
+      <span class="hint">使用 PerformanceObserver('longtask')，不支持时回退 performance.now()</span>
+    </div>
+    <div class="log" id="log">等待实测……</div>
+  </div>
+
+  <div class="panel">
+    <h2>3. 门禁判定</h2>
+    <div class="budget" style="margin-bottom:6px;">
+      <div class="bcard"><b id="estLcp">—</b><span>估算 LCP</span></div>
+      <div class="bcard"><b id="estInp">—</b><span>估算 INP</span></div>
+      <div class="bcard"><b id="total">—</b><span>首屏总体积</span></div>
+    </div>
+    <div class="verdict" id="verdict">—</div>
+    <div id="reasons" class="hint"></div>
+  </div>
+</div>
+
+<script>
+  const ids = ["js", "css", "img", "req", "third", "cls"];
+  const out = { js: "jsOut", css: "cssOut", img: "imgOut", req: "reqOut", third: "thirdOut", cls: "clsOut" };
+
+  // 简化估算模型：仅用于演示「输入 → 指标 → 判定」的因果，
+  // 真实项目请用 Lighthouse / RUM 数据，不要拿这个模型当结论。
+  function estimate(v) {
+    const totalKB = v.js + v.css + v.img;
+    const connection = 1.6 * 1024 / 1000; // MB/s 近似
+    const base = 0.35;                    // DNS + TCP + TLS 近似
+    const transfer = totalKB / 1024 / connection;
+    const requestPenalty = v.req * 0.018;
+    const thirdPenalty = v.third * 0.04;
+    const lcp = base + transfer + requestPenalty + thirdPenalty;
+    const inp = 80 + v.js * 0.9 + v.third * 18;
+    return { totalKB, lcp, inp };
+  }
+
+  function render() {
+    const v = {};
+    ids.forEach((id) => {
+      v[id] = Number(document.getElementById(id).value);
+      document.getElementById(out[id]).textContent =
+        id === "cls" ? v[id].toFixed(2) : v[id];
+    });
+
+    const { totalKB, lcp, inp } = estimate(v);
+    document.getElementById("estLcp").textContent = lcp.toFixed(2) + " s";
+    document.getElementById("estInp").textContent = Math.round(inp) + " ms";
+    document.getElementById("total").textContent = Math.round(totalKB) + " KB";
+
+    const reasons = [];
+    if (v.js > 170) reasons.push(`首屏 JS ${v.js}KB > 170KB`);
+    if (v.css > 50) reasons.push(`首屏 CSS ${v.css}KB > 50KB`);
+    if (v.img > 300) reasons.push(`首屏图片 ${v.img}KB > 300KB`);
+    if (v.req > 12) reasons.push(`关键请求 ${v.req} 个 > 12 个`);
+    if (v.third > 2) reasons.push(`第三方脚本 ${v.third} 个 > 2 个`);
+    if (lcp > 2.5) reasons.push(`估算 LCP ${lcp.toFixed(2)}s > 2.5s`);
+    if (inp > 200) reasons.push(`估算 INP ${Math.round(inp)}ms > 200ms`);
+    if (v.cls > 0.1) reasons.push(`CLS ${v.cls.toFixed(2)} > 0.10`);
+
+    const verdict = document.getElementById("verdict");
+    document.getElementById("reasons").textContent = reasons.length ? "超支项：" + reasons.join("；") : "";
+
+    // 分级：资源超支 20% 以内告警，显著超支阻断
+    const severe = reasons.some((r) => {
+      if (r.includes("JS")) return v.js > 170 * 1.2;
+      if (r.includes("CSS")) return v.css > 50 * 1.2;
+      if (r.includes("图片")) return v.img > 300 * 1.2;
+      if (r.includes("关键请求")) return v.req > 12 * 1.2;
+      if (r.includes("第三方")) return v.third > 2 * 1.2;
+      return true; // 指标超支一律阻断
+    });
+
+    if (reasons.length === 0) {
+      verdict.className = "verdict pass";
+      verdict.textContent = "✅ PASS — 全部预算内，可合入";
+    } else if (!severe) {
+      verdict.className = "verdict warn";
+      verdict.textContent = "⚠️ WARN — 小幅超支，允许合入但需登记";
+    } else {
+      verdict.className = "verdict fail";
+      verdict.textContent = "❌ FAIL — 显著超支，阻断合入";
+    }
+  }
+
+  ids.forEach((id) => document.getElementById(id).addEventListener("input", render));
+  render();
+
+  // ---------- 真实长任务测量 ----------
+  const log = document.getElementById("log");
+  const measureBtn = document.getElementById("measure");
+
+  function busy(ms) {
+    const end = performance.now() + ms;
+    while (performance.now() < end) { /* 故意阻塞主线程 */ }
+  }
+
+  measureBtn.addEventListener("click", () => {
+    log.textContent = "开始阻塞主线程……";
+    let observed = false;
+
+    let po = null;
+    try {
+      po = new PerformanceObserver((list) => {
+        list.getEntries().forEach((entry) => {
+          observed = true;
+          log.textContent =
+            `longtask: ${entry.duration.toFixed(1)} ms\n` +
+            `结论：${entry.duration > 50 ? "超过 50ms 阈值，会阻塞输入" : "未超过阈值"}`;
+        });
+      });
+      po.observe({ type: "longtask", buffered: true });
+    } catch (e) {
+      log.textContent = "该浏览器不支持 PerformanceObserver('longtask')，使用回退测量。";
+    }
+
+    // 让浏览器先绘制日志，再阻塞
+    requestAnimationFrame(() => {
+      const t0 = performance.now();
+      busy(120);
+      const elapsed = performance.now() - t0;
+      setTimeout(() => {
+        if (!observed) {
+          log.textContent =
+            `阻塞耗时：${elapsed.toFixed(1)} ms（performance.now 回退）\n` +
+            `结论：${elapsed > 50 ? "超过 50ms 阈值，会阻塞输入" : "未超过阈值"}`;
+        }
+        if (po) po.disconnect();
+      }, 300);
+    });
+  });
+</script>
+</body>
+</html>

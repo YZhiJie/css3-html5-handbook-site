@@ -1,0 +1,28 @@
+/* ========================================================================
+ *  Tailwind v4 入口
+ *  - @import "tailwindcss" 替代 v3 的 @tailwind 三指令
+ *  - @plugin 加载官方插件（Play CDN 不支持 @plugin，只在 mini-project 里能用）
+ *  - @theme 定义设计令牌
+ * ======================================================================== */
+
+@import "tailwindcss";
+
+/* ---------- 官方插件加载（需要先 npm install） ---------- */
+@plugin "@tailwindcss/typography";
+/* @plugin "@tailwindcss/forms"; */
+/* @plugin "@tailwindcss/aspect-ratio"; */  /* v4 已内建，通常不需要 */
+/* @plugin "@tailwindcss/container-queries"; */
+
+/* ---------- 设计令牌 ---------- */
+@theme inline {
+  --color-brand: #da373d;
+  --font-sans: "Inter", "Noto Sans SC", system-ui, sans-serif;
+}
+
+/* ---------- 可以覆盖 Typography 的默认颜色 ---------- */
+/* Typography 插件内部会用 --color-slate-* 系列，默认已内置 */
+/* 如果你想改 heading 颜色，可以用 @layer components 覆盖 */
+
+@layer base {
+  html { font-family: var(--font-sans); }
+}

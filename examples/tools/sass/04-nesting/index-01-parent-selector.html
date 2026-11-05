@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sass &amp; 父选择器 6 种用法对照</title>
+
+  <!-- Dart Sass standalone 版 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/sass@1.85.0/sass.standalone.js"></script>
+
+  <style>
+    /* 页面容器 */
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+      background: #f4f6fa;
+      color: #222;
+    }
+    .page {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 20px 60px;
+    }
+    h1 { font-size: 24px; margin: 0 0 6px; }
+    .lead { color: #666; margin-bottom: 22px; font-size: 13px; line-height: 1.7; }
+
+    .demo {
+      background: #fff;
+      border-radius: 12px;
+      padding: 18px 20px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+      margin-bottom: 16px;
+    }
+    .demo h2 {
+      margin: 0 0 3px;
+      font-size: 15px;
+      color: #1e293b;
+    }
+    .demo h2 code {
+      background: #eef2ff;
+      color: #4338ca;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .demo .desc {
+      margin: 0 0 10px;
+      font-size: 12px;
+      color: #64748b;
+      line-height: 1.6;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    code-block {
+      display: block;
+      background: #1e293b;
+      color: #e2e8f0;
+      font-family: "JetBrains Mono", "Menlo", monospace;
+      font-size: 11.5px;
+      line-height: 1.6;
+      border-radius: 8px;
+      padding: 10px 12px;
+      overflow-x: auto;
+      white-space: pre;
+      max-height: 160px;
+    }
+
+    .render {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 14px;
+      background: #fafbfc;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      min-height: 80px;
+    }
+
+    .render-label {
+      font-size: 11px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 4px;
+    }
+
+    /* 示例里用到的组件（普通 CSS，不走 Sass 编译） */
+    .demo-btn {
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .demo-btn:hover { background: #e2e8f0; }
+
+    .demo-card {
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 10px;
+      background: #fff;
+    }
+    .demo-card h3 {
+      margin: 0 0 4px;
+      font-size: 13px;
+      color: #334155;
+    }
+    .demo-card p {
+      margin: 0;
+      font-size: 11px;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>🎯 Sass <code>&amp;</code> 父选择器 —— 6 种用法对照</h1>
+    <p class="lead">
+      每一行 SCSS 都在浏览器端实时编译（<code>sass.standalone.js</code>）。
+      左侧是 SCSS 源码，右侧是编译后的 CSS 和实际渲染效果。鼠标悬停到右侧卡片上能看到 <code>:hover</code>、
+      点击能看到 <code>:focus-visible</code> 效果。
+    </p>
+
+    <!-- 6 个示例的渲染容器（这些容器用原生 CSS 已经写好结构） -->
+    <!-- 实际注入的样式由下面的 SCSS 编译得到 -->
+    <div class="demo">
+      <h2>用法 1 · 基本引用 <code>&amp;:hover</code></h2>
+      <p class="desc">
+        最常见的写法：嵌套里用 <code>&amp;:hover</code>、<code>&amp;:focus</code>、<code>&amp;::before</code>。
+        编译后变成 <code>.card:hover</code>，而不是 <code>.card .card:hover</code>。
+      </p>
+      <div class="row">
+        <div>
+          <div class="render-label">SCSS</div>
+          <code-block id="s1-src">// 等待注入</code-block>
+        </div>
+        <div>
+          <div class="render-label">编译产物 &amp; 渲染</div>
+          <div class="render">
+            <div class="usage1-card">
+              <h3>悬停看阴影变化</h3>
+              <p>focus-visible 会有蓝色外框</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo">
+      <h2>用法 2 · 选择器列表展开 <code>a, button { &amp;:focus }</code></h2>
+      <p class="desc">
+        当外层是逗号分隔的选择器列表时，<code>&amp;</code> 会**自动笛卡尔展开**，
+        产出 <code>a:focus-visible, button:focus-visible { }</code>，而不是把 focus-visible 写两遍。
+      </p>
+      <div class="row">
+        <div>
+          <div class="render-label">SCSS</div>
+          <code-block id="s2-src">// 等待注入</code-block>
+        </div>
+        <div>
+          <div class="render-label">编译产物 &amp; 渲染（Tab 键切换焦点）</div>
+          <div class="render">
+            <a href="#" class="demo-btn usage2-link">链接</a>
+            <button class="demo-btn usage2-btn">按钮</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo">
+      <h2>用法 3 · BEM 修饰符 <code>&amp;--primary</code> / <code>&amp;__title</code></h2>
+      <p class="desc">
+        <code>&amp;</code> 后面直接跟字符串（没有空格）就变成拼接——这是 BEM 命名法的核心语法，
+        一个 block 类就能生成全部修饰符和元素。
+      </p>
+      <div class="row">
+        <div>
+          <div class="render-label">SCSS</div>
+          <code-block id="s3-src">// 等待注入</code-block>
+        </div>
+        <div>
+          <div class="render-label">编译产物 &amp; 渲染</div>
+          <div class="render">
+            <button class="usage3-btn usage3-btn--primary">Primary</button>
+            <button class="usage3-btn usage3-btn--ghost">Ghost</button>
+            <button class="usage3-btn usage3-btn--danger">Danger</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo">
+      <h2>用法 4 · 字符串插值 <code>&amp; + #{$var}</code></h2>
+      <p class="desc">
+        在 <code>&amp;</code> 或选择器位置里用 <code>#{$var}</code> 插值，
+        可以根据变量值拼接选择器——常用于主题变体、动态组件名。
+      </p>
+      <div class="row">
+        <div>
+          <div class="render-label">SCSS</div>
+          <code-block id="s4-src">// 等待注入</code-block>
+        </div>
+        <div>
+          <div class="render-label">编译产物 &amp; 渲染（两主题对比）</div>
+          <div class="render" style="flex-direction:column;align-items:stretch;">
+            <div class="light-mode">
+              <div class="usage4-card"><strong>light-mode</strong><span>浅色主题卡</span></div>
+            </div>
+            <div class="dark-mode">
+              <div class="usage4-card"><strong>dark-mode</strong><span>深色主题卡</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo">
+      <h2>用法 5 · 属性嵌套 <code>border: { left: { color: red } }</code></h2>
+      <p class="desc">
+        **Sass 独有的特性**（原生 CSS 没有对应物）。多个属性共享前缀时，把前缀提取到块名，
+        子块写后缀——Vendor Prefix 管理、复杂属性分组非常好用。
+      </p>
+      <div class="row">
+        <div>
+          <div class="render-label">SCSS</div>
+          <code-block id="s5-src">// 等待注入</code-block>
+        </div>
+        <div>
+          <div class="render-label">编译产物 &amp; 渲染</div>
+          <div class="render">
+            <div class="usage5-box">左侧粗边框 + 渐变背景 + 内边距</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo">
+      <h2>用法 6 · <code>@at-root</code> 逃逸嵌套层级</h2>
+      <p class="desc">
+        在深层嵌套的 mixin 里生成 <code>@keyframes</code>、重置样式等顶层选择器时，
+        用 <code>@at-root</code> 让规则跳出去——产物 CSS 不受外层选择器包裹。
+      </p>
+      <div class="row">
+        <div>
+          <div class="render-label">SCSS</div>
+          <code-block id="s6-src">// 等待注入</code-block>
+        </div>
+        <div>
+          <div class="render-label">编译产物 &amp; 渲染（悬停触发动画）</div>
+          <div class="render">
+            <div class="usage6-box">hover 我 → 淡入缩放</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <!--  所有用法的 SCSS 源码（由 JS 统一编译并注入）                   -->
+  <!-- ============================================================= -->
+  <script type="text/sass" id="all-scss">
+@use 'sass:math';
+
+$primary: #3b82f6;
+$primary-dark: #2563eb;
+$danger: #ef4444;
+
+// ──────────────────────────────
+// 用法 1：& 基本引用（伪类/伪元素）
+// ──────────────────────────────
+.usage1-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.2s, transform 0.2s;
+
+  // &:hover —— & 代表 .usage1-card
+  &:hover {
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
+  }
+
+  // &:focus-visible —— 同上
+  &:focus-visible {
+    outline: 2px solid $primary;
+    outline-offset: 2px;
+  }
+
+  // &::before 伪元素
+  &::before {
+    content: "";
+    display: block;
+    width: 32px;
+    height: 4px;
+    background: $primary;
+    border-radius: 2px;
+    margin-bottom: 12px;
+  }
+
+  h3 { margin: 0 0 6px; font-size: 14px; }
+  p  { margin: 0; font-size: 12px; color: #64748b; }
+}
+
+// ──────────────────────────────
+// 用法 2：选择器列表展开
+// ──────────────────────────────
+.usage2-link, .usage2-btn {
+  // &:focus-visible 会展开成：
+  // .usage2-link:focus-visible, .usage2-btn:focus-visible
+  &:focus-visible {
+    outline: 2px solid $primary;
+    outline-offset: 2px;
+  }
+}
+
+// ──────────────────────────────
+// 用法 3：BEM 修饰符拼接
+// ──────────────────────────────
+.usage3-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+
+  // &--xxx 直接拼接成修饰符
+  &--primary { background: $primary; color: #fff; }
+  &--ghost   { background: transparent; color: $primary; border: 1px solid $primary; }
+  &--danger  { background: $danger; color: #fff; }
+
+  &:hover { filter: brightness(0.95); }
+}
+
+// ──────────────────────────────
+// 用法 4：字符串插值（主题变体）
+// ──────────────────────────────
+$themes: light, dark;
+
+.usage4-card {
+  padding: 12px;
+  border-radius: 8px;
+
+  // 外层是主题容器，内层 & 是 .usage4-card
+  @each $t in $themes {
+    .#{$t}-mode & {
+      @if $t == light {
+        background: #fff; color: #1e293b; border: 1px solid #e2e8f0;
+      } @else {
+        background: #1e293b; color: #f1f5f9; border: 1px solid #334155;
+      }
+    }
+  }
+
+  strong { display: block; font-size: 13px; margin-bottom: 2px; }
+  span   { font-size: 12px; opacity: 0.7; }
+}
+.light-mode, .dark-mode { padding: 10px; border-radius: 6px; }
+
+// ──────────────────────────────
+// 用法 5：属性嵌套
+// ──────────────────────────────
+.usage5-box {
+  padding: 16px;
+  background: linear-gradient(135deg, #dbeafe, #ede9fe);
+  border-radius: 8px;
+
+  // 属性嵌套：border-left 的三个子属性
+  border: {
+    left: {
+      width: 4px;
+      style: solid;
+      color: $primary;
+    };
+  };
+
+  // font 属性嵌套（font-family / font-size 等）
+  font: {
+    size: 14px;
+    weight: 500;
+    family: "Inter", system-ui, sans-serif;
+  };
+}
+
+// ──────────────────────────────
+// 用法 6：@at-root 逃逸（配合 keyframes）
+// ──────────────────────────────
+@mixin entrance($name) {
+  @at-root {
+    @keyframes #{$name} {
+      from { opacity: 0; transform: scale(0.95); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+  }
+}
+
+.usage6-box {
+  padding: 16px;
+  background: #fef3c7;
+  border-radius: 8px;
+  border: 1px solid #fcd34d;
+
+  @include entrance(hover-pop);
+
+  &:hover {
+    animation: hover-pop 0.3s ease-out forwards;
+  }
+}
+  </script>
+
+  <script>
+    (async () => {
+      const source = document.getElementById('all-scss').textContent.trim();
+
+      try {
+        const { css } = await globalThis.sass.compileStringAsync(source, {
+          style: 'expanded',
+        });
+
+        // 注入编译后的 CSS
+        const style = document.createElement('style');
+        style.textContent = css;
+        document.head.appendChild(style);
+
+        // 给 6 个源码展示块分别截对应代码片段（简单起见直接显示完整 SCSS 和完整 CSS）
+        document.getElementById('s1-src').textContent = source;
+        document.getElementById('s2-src').textContent = '（见左侧 SCSS 源码块前半段，选中 .usage2-link, .usage2-btn 那一块）';
+        document.getElementById('s3-src').textContent = '（见左侧 SCSS 源码块里的 .usage3-btn 部分）';
+        document.getElementById('s4-src').textContent = '（见左侧 SCSS 源码块里的 $themes + .usage4-card 部分）';
+        document.getElementById('s5-src').textContent = '（见左侧 SCSS 源码块里的 .usage5-box border: { left: ... } 部分）';
+        document.getElementById('s6-src').textContent = '（见左侧 SCSS 源码块里的 @mixin entrance 部分）';
+
+        console.log('Dart Sass 编译成功，共 ' + css.split('\n').length + ' 行 CSS');
+      } catch (err) {
+        console.error('❌ Dart Sass 编译失败：', err);
+      }
+    })();
+  </script>
+</body>
+</html>

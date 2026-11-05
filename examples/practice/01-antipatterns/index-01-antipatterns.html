@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 01：CSS/HTML 反例库（10 条高发项现场验证）
+  ------------------------------------------------------------
+  【知识点】
+    1. 语义错误：div 假按钮、焦点轮廓被移除
+    2. 布局误用：固定高度、Flex min-width、绝对定位包含块、float
+    3. 可访问性与视觉：低对比度、只有 hover 没有 focus
+    4. 性能与工程：transition: all、全局重置副作用
+  【运行方式】
+    单文件、零网络、零外部资源；双击 file:// 即可运行。
+  【效果说明】
+    每张卡片左右并排渲染「错误版 / 修复版」；部分用例可点击
+    或聚焦，直接观察焦点、裁剪、溢出与动效差异。上方按钮可按
+    类别筛选。
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 01 · CSS/HTML 反例库</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:#f1f5f9; color:#0f172a; line-height:1.6;
+    padding:22px 16px 60px;
+  }
+  .wrap { max-width:1060px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:#64748b; font-size:13.5px; margin-bottom:16px; }
+  .filter { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+  .filter button {
+    font:inherit; font-size:13px; padding:6px 13px; border-radius:999px; cursor:pointer;
+    border:1px solid #cbd5e1; background:#fff; color:#334155;
+  }
+  .filter button.on { background:#0f172a; color:#fff; border-color:#0f172a; }
+  .case {
+    position:relative; background:#fff; border:1px solid #cbd5e1; border-radius:12px;
+    padding:16px; margin-bottom:14px;
+  }
+  .case h2 { font-size:15px; margin-bottom:10px; }
+  .cat { font-size:11px; color:#64748b; border:1px solid #e2e8f0; border-radius:999px; padding:1px 8px; margin-left:8px; vertical-align:2px; }
+  .compare { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .pane { background:#f8fafc; border:1px solid #e2e8f0; border-radius:9px; padding:12px; min-height:104px; }
+  .pane .tag { display:inline-block; font-size:11.5px; font-weight:700; margin-bottom:8px; }
+  .bad .tag { color:#b91c1c; }
+  .good .tag { color:#15803d; }
+  .cause { font-size:12.5px; color:#475569; margin-top:10px; }
+  .cause b { color:#0f172a; }
+
+  /* 01 假按钮 */
+  .fake-btn, .real-btn {
+    display:inline-block; padding:8px 16px; border-radius:8px;
+    background:#2563eb; color:#fff; font-size:13px; border:1px solid #2563eb; cursor:pointer;
+  }
+  .real-btn { font-family:inherit; }
+  .fake-btn:focus { outline:none; }
+
+  /* 02 焦点 */
+  .focus-input { width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:8px; font:inherit; }
+  .bad .focus-input:focus { outline:none; }
+  .good .focus-input:focus { outline:3px solid #2563eb; outline-offset:2px; }
+
+  /* 03 固定高度 */
+  .fixed-box { height:58px; overflow:hidden; background:#e0e7ff; border-radius:8px; padding:10px; font-size:13px; }
+  .min-box { min-height:58px; background:#dcfce7; border-radius:8px; padding:10px; font-size:13px; }
+
+  /* 04 flex 收缩 */
+  .flex-row { display:flex; gap:8px; width:100%; background:#e2e8f0; border-radius:8px; padding:8px; }
+  .flex-row .avatar { width:32px; height:32px; border-radius:50%; background:#94a3b8; flex:none; }
+  .flex-row .text { flex:1; font-size:13px; background:#fff; border-radius:6px; padding:4px 6px; }
+  .flex-row.bad .text { white-space:nowrap; overflow:visible; }
+  .flex-row.good .text { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* 05 absolute */
+  .stage { height:86px; background:#e2e8f0; border-radius:8px; }
+  .stage.rel { position:relative; }
+  .stage .badge { position:absolute; top:8px; right:8px; background:#f97316; color:#fff; font-size:11.5px; padding:3px 9px; border-radius:999px; }
+  .stage .label { position:absolute; left:10px; bottom:8px; font-size:12px; color:#475569; }
+
+  /* 06 对比度 */
+  .swatch { background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:12px; font-size:13.5px; }
+  .muted-bad { color:#b6c2d1; }
+  .muted-good { color:#64748b; }
+
+  /* 07 hover/focus */
+  .hover-btn {
+    padding:8px 16px; border-radius:8px; border:1px solid #2563eb;
+    background:#fff; color:#1d4ed8; font:inherit; font-size:13px; cursor:pointer;
+  }
+  .bad .hover-btn:hover { background:#1d4ed8; color:#fff; }
+  .good .hover-btn:hover, .good .hover-btn:focus-visible { background:#1d4ed8; color:#fff; }
+
+  /* 08 float */
+  .float-wrap { border:1px dashed #94a3b8; border-radius:8px; padding:8px; }
+  .float-wrap .col { float:left; width:33.33%; background:#c7d2fe; border-radius:6px; padding:16px 6px; text-align:center; font-size:12px; }
+  .float-wrap::after { content:""; display:block; clear:both; }
+  .grid-wrap { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; border:1px dashed #94a3b8; border-radius:8px; padding:8px; }
+  .grid-wrap .col { background:#bbf7d0; border-radius:6px; padding:16px 6px; text-align:center; font-size:12px; }
+  .no-clear { border:1px dashed #94a3b8; border-radius:8px; padding:8px; }
+  .no-clear .col { float:left; width:33.33%; background:#fecaca; border-radius:6px; padding:16px 6px; text-align:center; font-size:12px; }
+
+  /* 09 transition */
+  .motion-box {
+    width:56px; height:56px; border-radius:10px; background:#a78bfa;
+    display:flex; align-items:center; justify-content:center; color:#fff; font-size:12px;
+  }
+  .bad .motion-box { transition:all .4s; }
+  .bad .motion-box:hover { width:110px; background:#7c3aed; }
+  .good .motion-box { transition:transform .4s, background-color .4s; }
+  .good .motion-box:hover { transform:translateX(40px); background:#7c3aed; }
+
+  /* 10 全局重置 */
+  .reset-bad * { margin:0; padding:0; }
+  .reset-good h3 { margin:0 0 6px; font-size:14px; }
+  .reset-good p { margin:0 0 10px; font-size:13px; }
+  .reset-bad h3 { font-size:14px; }
+  .reset-bad p { font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>CSS/HTML 反例库 · 10 条高发现场</h1>
+  <p class="sub">左右并排对照，错的不是「丑」，而是触发了某条机制。完整 30 条见 <code>docs/practice/01-antipatterns.md</code>。</p>
+
+  <div class="filter" id="filter">
+    <button class="on" data-cat="all">全部</button>
+    <button data-cat="semantic">语义与可访问性</button>
+    <button data-cat="layout">布局</button>
+    <button data-cat="visual">视觉与动效</button>
+    <button data-cat="perf">性能与工程</button>
+  </div>
+
+  <article class="case" data-cat="semantic">
+    <h2>01 · 用 div 当按钮<span class="cat">语义</span></h2>
+    <div class="compare">
+      <div class="pane bad">
+        <span class="tag">❌ 错误：不可聚焦、回车不触发</span>
+        <div class="fake-btn">保存</div>
+      </div>
+      <div class="pane good">
+        <span class="tag">✅ 修复：原生 button</span>
+        <button class="real-btn" type="button">保存</button>
+      </div>
+    </div>
+    <p class="cause"><b>机制：</b>原生 <code>button</code> 自带按钮角色、Tab 焦点与 Enter / Space 激活；<code>div</code> 三样都要手写。</p>
+  </article>
+
+  <article class="case" data-cat="semantic">
+    <h2>02 · 移除焦点轮廓<span class="cat">语义</span></h2>
+    <div class="compare">
+      <div class="pane bad">
+        <span class="tag">❌ 错误：focus 时 outline:none</span>
+        <input class="focus-input" placeholder="点击我，再按 Tab">
+      </div>
+      <div class="pane good">
+        <span class="tag">✅ 修复：保留可见轮廓</span>
+        <input class="focus-input" placeholder="点击我，再按 Tab">
+      </div>
+    </div>
+    <p class="cause"><b>机制：</b>点击两个输入框对比聚焦状态；移除轮廓必须提供替代，否则键盘用户丢失位置。</p>
+  </article>
+
+  <article class="case" data-cat="layout">
+    <h2>03 · 固定高度装可变内容<span class="cat">布局</span></h2>
+    <div class="compare">
+      <div class="pane bad">
+        <span class="tag">❌ 错误：height + overflow:hidden</span>
+        <div class="fixed-box">这段说明文字比较长，内容一多就会被硬高度裁剪，用户看不到完整信息。</div>
+      </div>
+      <div class="pane good">
+        <span class="tag">✅ 修复：min-height</span>
+        <div class="min-box">这段说明文字比较长，min-height 只设下限，容器会随内容自然增长。</div>
+      </div>
+    </div>
+    <p class="cause"><b>机制：</b><code>height</code> 是硬约束，超出即裁剪；<code>min-height</code> 只约束下限。</p>
+  </article>
+
+  <article class="case" data-cat="layout">
+    <h2>04 · Flex 子项不收缩<span class="cat">布局</span></h2>
+    <div class="compare">
+      <div class="pane bad">
+        <span class="tag">❌ 错误：长文本撑破容器</span>
+        <div class="flex-row bad">
+          <div class="avatar"></div>
+          <div class="text">SuperLongUnbreakableFilename_2026_Q4_report_final_final_v2.pdf</div>
+        </div>
+      </div>
+      <div class="pane good">
+        <span class="tag">✅ 修复：min-width:0 + 省略</span>
+        <div class="flex-row good">
+          <div class="avatar"></div>
+          <div class="text">SuperLongUnbreakableFilename_2026_Q4_report_final_final_v2.pdf</div>
+        </div>
+      </div>
+    </div>
+    <p class="cause"><b>机制：</b>Flex 子项默认 <code>min-width:auto</code>，不会小于内容最小宽度；显式 <code>min-width:0</code> 才允许收缩。</p>
+  </article>
+
+  <article class="case" data-cat="layout">
+    <h2>05 · absolute 找不到定位祖先<span class="cat">布局</span></h2>
+    <div class="compare">
+      <div class="pane bad">
+        <span class="tag">❌ 错误：stage 是 static</span>
+        <div class="stage">
+          <div class="badge">NEW</div>
+          <div class="label">角标飞到了卡片右上角</div>
+        </div>
+      </div>
+      <div class="pane good">
+        <span class="tag">✅ 修复：stage 加 relative</span>
+        <div class="stage rel">
+          <div class="badge">NEW</div>
+          <div class="label">角标贴住 stage 右上角</div>
+        </div>
+      </div>
+    </div>
+    <p class="cause"><b>机制：</b>绝对定位的包含块是最近的非 <code>static</code> 祖先；错误版的角标越过 stage，落到外层卡片上。</p>
+  </article>
+
+  <article class="case" data-cat="visual">
+    <h2>06 · 浅灰文字对比度不足<span class="cat">可访问性</span></h2>
+    <div class="compare">
+      <div class="pane bad">
+        <span class="tag">❌ 错误：#b6c2d1（约 1.9:1）</span>
+        <div class="swatch"><p class="muted-bad">仅显示最近 30 天记录</p></div>
+      </div>
+      <div class="pane good">
+        <span class="tag">✅ 修复：#64748b（约 4.7:1）</span>
+        <div class="swatch"><p class="muted-good">仅显示最近 30 天记录</p></div>
+      </div>
+    </div>
+    <p class="cause"><b>机制：</b>正文对比度要求 ≥ 4.5:1；低对比在强光与低质量屏幕上不可读。</p>
+  </article>
+
+  <article class="case" data-cat="visual">
+    <h2>07 · 只有 hover，没有 focus<span class="cat">可访问性</span></h2>
+    <div class="compare">
+      <div class="pane bad">
+        <span class="tag">❌ 错误：:hover 单独出现</span>
+        <button class="hover-btn" type="button">悬停 / Tab 聚焦我</button>
+      </div>
+      <div class="pane good">
+        <span class="tag">✅ 修复：:hover + :focus-visible</span>
+        <button class="hover-btn" type="button">悬停 / Tab 聚焦我</button>
+      </div>
+    </div>
+    <p class="cause"><b>机制：</b>悬停与键盘焦点是两条独立路径；用 Tab 聚焦，错误版没有背景反馈。</p>
+  </article>
+
+  <article class="case" data-cat="visual">
+    <h2>08 · 用 float 做整体布局<span class="cat">布局</span></h2>
+    <div class="compare">
+      <div class="pane bad">
+        <span class="tag">❌ 错误：未清除浮动，父容器高度塌陷</span>
+        <div class="no-clear">
+          <div class="col">列 1</div><div class="col">列 2</div><div class="col">列 3</div>
+        </div>
+      </div>
+      <div class="pane good">
+        <span class="tag">✅ 修复：display:grid</span>
+        <div class="grid-wrap">
+          <div class="col">列 1</div><div class="col">列 2</div><div class="col">列 3</div>
+        </div>
+      </div>
+    </div>
+    <p class="cause"><b>机制：</b>浮动元素脱离普通流，父容器不计算其高度；Grid 是正规布局上下文。</p>
+  </article>
+
+  <article class="case" data-cat="perf">
+    <h2>09 · transition: all<span class="cat">性能</span></h2>
+    <div class="compare">
+      <div class="pane bad">
+        <span class="tag">❌ 错误：all 连宽度一起动画（触发布局）</span>
+        <div class="motion-box">hover</div>
+      </div>
+      <div class="pane good">
+        <span class="tag">✅ 修复：只动画 transform / 颜色</span>
+        <div class="motion-box">hover</div>
+      </div>
+    </div>
+    <p class="cause"><b>机制：</b><code>all</code> 监听所有可动画属性；宽度动画触发布局，transform 在合成阶段处理。</p>
+  </article>
+
+  <article class="case" data-cat="perf">
+    <h2>10 · 过度全局重置<span class="cat">工程</span></h2>
+    <div class="compare">
+      <div class="pane bad reset-bad">
+        <span class="tag">❌ 错误：* { margin:0; padding:0 }</span>
+        <h3>季度报告</h3>
+        <p>标题与正文贴在一起，层级消失。</p>
+        <p>第二段也失去段落间距。</p>
+      </div>
+      <div class="pane good reset-good">
+        <span class="tag">✅ 修复：只重置 box-sizing</span>
+        <h3>季度报告</h3>
+        <p>标题与正文保留默认节奏。</p>
+        <p>第二段有清晰间距。</p>
+      </div>
+    </div>
+    <p class="cause"><b>机制：</b>全局重置会抹掉浏览器提供的可用默认值，需逐项确认而非一刀切。</p>
+  </article>
+</div>
+
+<script>
+  const filter = document.getElementById("filter");
+  const cases = [...document.querySelectorAll(".case")];
+  filter.addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    [...filter.children].forEach((b) => b.classList.toggle("on", b === btn));
+    const cat = btn.dataset.cat;
+    cases.forEach((c) => {
+      c.style.display = cat === "all" || c.dataset.cat === cat ? "" : "none";
+    });
+  });
+</script>
+</body>
+</html>

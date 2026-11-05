@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  示例 04：兼容矩阵与渐进增强兜底
+  ------------------------------------------------------------
+  【知识点】
+    1. 基础层保证任务可完成，增强层只负责更好
+    2. 用 @supports 与能力检测，而不是 UA 判断
+    3. :has() 布局与 popover 菜单都需要兜底路径
+    4. 「强制降级」开关用于验证兜底代码没有腐坏
+  【运行方式】
+    单文件、零网络、零外部资源；双击 file:// 即可运行。
+  【效果说明】
+    页面检测 :has() / popover / 锚点定位 / dialog 的支持状态；
+    切换「模拟不支持」后，卡片回到单列布局，菜单改用显隐类
+    与焦点管理，功能仍然可用，只是体验降级。
+  ============================================================
+-->
+<html lang="zh-CN" class="support">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>示例 04 · 兼容矩阵与渐进增强兜底</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    background:#f1f5f9; color:#0f172a; line-height:1.6;
+    padding:22px 16px 60px;
+  }
+  .wrap { max-width:980px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .sub { color:#64748b; font-size:13.5px; margin-bottom:18px; }
+  .panel { background:#fff; border:1px solid #cbd5e1; border-radius:12px; padding:16px; margin-bottom:16px; }
+  h2 { font-size:15px; margin-bottom:12px; }
+  .bar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  button {
+    font:inherit; padding:8px 14px; border-radius:9px; cursor:pointer;
+    border:1px solid #cbd5e1; background:#fff; color:#0f172a;
+  }
+  button.primary { background:#2563eb; border-color:#2563eb; color:#fff; }
+  .caps { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; }
+  .cap { background:#f8fafc; border:1px solid #e2e8f0; border-radius:9px; padding:10px 12px; font-size:13px; }
+  .cap b { display:block; }
+  .yes { color:#166534; }
+  .no { color:#991b1b; }
+
+  /* ---------- 基础层：单列，永远可用 ---------- */
+  .card {
+    display:grid; grid-template-columns:1fr; gap:14px;
+    border:1px solid #cbd5e1; border-radius:12px; padding:14px; background:#fff;
+    margin-bottom:14px;
+  }
+  .thumb {
+    width:100%; height:96px; border-radius:9px;
+    background:linear-gradient(135deg,#dbeafe,#bfdbfe);
+    display:flex; align-items:center; justify-content:center;
+    color:#1d4ed8; font-weight:700; font-size:13px;
+  }
+  .card h3 { font-size:16px; margin-bottom:4px; }
+  .card p { font-size:13px; color:#64748b; }
+  .actions { margin-top:10px; }
+
+  /* ---------- 增强层：:has() 有图两列，仅在 support 下生效 ---------- */
+  @supports selector(:has(*)) {
+    .support .card:has(.thumb) {
+      grid-template-columns:160px 1fr;
+      align-items:start;
+    }
+  }
+
+  /* ---------- 菜单：增强用 popover，基础用显隐类 ---------- */
+  .menu-wrap { position:relative; display:inline-block; }
+  .menu {
+    margin-top:8px; background:#fff; border:1px solid #cbd5e1; border-radius:10px;
+    box-shadow:0 12px 28px rgba(15,23,42,.14); padding:8px; min-width:180px;
+  }
+  .menu[hidden] { display:none; }
+  .menu a { display:block; padding:8px 10px; border-radius:7px; color:#0f172a; text-decoration:none; font-size:13.5px; }
+  .menu a:hover { background:#f1f5f9; }
+  .menu a:focus-visible { outline:2px solid #2563eb; outline-offset:1px; }
+  .menu.is-open { display:block; }
+
+  /* popover 增强时的顶层样式 */
+  .menu[popover] {
+    position:fixed; inset:auto; margin:0; border:1px solid #cbd5e1;
+    padding:8px; border-radius:10px; box-shadow:0 12px 28px rgba(15,23,42,.18);
+  }
+
+  .note { font-size:12.5px; color:#64748b; margin-top:10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>兼容矩阵与渐进增强：底线保住，增强加分</h1>
+  <p class="sub">卡片两列布局靠 <code>:has()</code>，菜单靠 popover。两者都属增强层；关闭增强后，单列布局与显隐菜单仍然可用。</p>
+
+  <div class="panel">
+    <h2>1. 能力检测（不是 UA 判断）</h2>
+    <div class="caps" id="caps"></div>
+    <div class="note">检测：<code>CSS.supports('selector(:has(*))')</code>、<code>'popover' in HTMLElement.prototype</code>、<code>CSS.supports('anchor-name: --x')</code>、<code>typeof HTMLDialogElement</code>。</div>
+  </div>
+
+  <div class="panel">
+    <h2>2. 组件：基础层 + 增强层</h2>
+    <div class="bar">
+      <button id="force" class="primary" type="button">模拟不支持环境</button>
+      <span id="mode" style="font-size:13px;color:#64748b;">当前：真实环境（增强启用）</span>
+    </div>
+
+    <article class="card">
+      <div class="thumb">缩略图</div>
+      <div>
+        <h3>季度经营报告</h3>
+        <p>包含营收、成本与复购率三组指标。支持 :has() 时，左侧缩略图与右侧正文并排。</p>
+        <div class="actions menu-wrap">
+          <button id="menuBtn" type="button" aria-expanded="false" aria-controls="menu">更多操作</button>
+          <div id="menu" class="menu" hidden>
+            <a href="#" onclick="return false">导出 PDF</a>
+            <a href="#" onclick="return false">分享链接</a>
+            <a href="#" onclick="return false">归档</a>
+          </div>
+        </div>
+      </div>
+    </article>
+    <p class="note" id="state">菜单：等待操作。增强环境使用 popover 顶层渲染；降级环境使用 hidden 显隐。</p>
+  </div>
+</div>
+
+<script>
+  // ---------- 能力检测 ----------
+  const caps = {
+    ":has()": CSS.supports("selector(:has(*))"),
+    popover: "popover" in HTMLElement.prototype,
+    "锚点定位": CSS.supports("anchor-name: --x"),
+    dialog: typeof HTMLDialogElement === "function",
+  };
+
+  document.getElementById("caps").innerHTML = Object.entries(caps)
+    .map(
+      ([name, ok]) =>
+        `<div class="cap"><b class="${ok ? "yes" : "no"}">${ok ? "✅ 支持" : "❌ 不支持"}</b><span>${name}</span></div>`,
+    )
+    .join("");
+
+  // ---------- 增强 / 降级切换 ----------
+  const html = document.documentElement;
+  const menu = document.getElementById("menu");
+  const menuBtn = document.getElementById("menuBtn");
+  const state = document.getElementById("state");
+  const mode = document.getElementById("mode");
+  const forceBtn = document.getElementById("force");
+  let forcedFallback = false;
+
+  // 让增强层真正走 popover：仅在真实支持时把它变成 popover 元素
+  function enhancedPopover() {
+    return !forcedFallback && caps.popover;
+  }
+
+  function closeMenu() {
+    menu.hidden = true;
+    menu.classList.remove("is-open");
+    menuBtn.setAttribute("aria-expanded", "false");
+    if (menu.hasAttribute("popover") && menu.matches(":popover-open")) {
+      menu.hidePopover();
+    }
+  }
+
+  function openMenu() {
+    menuBtn.setAttribute("aria-expanded", "true");
+    if (enhancedPopover()) {
+      menu.setAttribute("popover", "auto");
+      menu.hidden = false;
+      menu.classList.remove("is-open");
+      menu.showPopover();
+      // popover 定位到按钮下方（基础近似，未用锚点定位）
+      const r = menuBtn.getBoundingClientRect();
+      menu.style.left = `${r.left}px`;
+      menu.style.top = `${r.bottom + 6}px`;
+    } else {
+      menu.hidden = false;
+      menu.classList.add("is-open");
+    }
+    menu.querySelector("a")?.focus();
+  }
+
+  menuBtn.addEventListener("click", () => {
+    const isOpen = menuBtn.getAttribute("aria-expanded") === "true";
+    if (isOpen) {
+      closeMenu();
+      state.textContent = "菜单：已关闭。";
+    } else {
+      openMenu();
+      state.textContent = enhancedPopover()
+        ? "菜单：以 popover 打开（顶层渲染，不被 overflow 裁剪）。"
+        : "菜单：以降级路径打开（hidden + 类名，功能完整）。";
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closeMenu();
+      menuBtn.focus();
+    }
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".menu-wrap")) closeMenu();
+  });
+
+  forceBtn.addEventListener("click", () => {
+    forcedFallback = !forcedFallback;
+    html.classList.toggle("support", !forcedFallback);
+    closeMenu();
+    forceBtn.textContent = forcedFallback ? "恢复真实环境" : "模拟不支持环境";
+    mode.textContent = forcedFallback
+      ? "当前：模拟不支持（增强关闭，走兜底）"
+      : "当前：真实环境（增强启用）";
+    state.textContent = forcedFallback
+      ? "菜单：当前为降级路径。卡片回到单列，菜单用 hidden 显隐。"
+      : "菜单：当前为增强路径。卡片有图两列，菜单使用 popover。";
+  });
+</script>
+</body>
+</html>
